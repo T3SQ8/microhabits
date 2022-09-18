@@ -98,9 +98,9 @@ class Habits:
                     textbox = f'[{self.log[habit["name"]][screen_date]}]'
                 except KeyError:
                     if self.check_due(habit, screen_date):
-                        textbox = '[o]'
-                    else:
                         textbox = '[ ]'
+                    else:
+                        textbox = '[o]'
                 row += textbox.ljust(14)
                 i += 1
             habits_list.append(row)
@@ -121,39 +121,41 @@ class Habits:
             case _:
                 self.log[habit_name][date] = 'y'
 
-    def check_due(self, habit, date):
-        due = False
+    def check_due(self, habit, selected_date):
+        due = True
         frequency = habit['frequency']
         name = habit['name']
-        date = datetime.strptime(date, "%Y-%m-%d")
+        selected_date = datetime.strptime(selected_date, "%Y-%m-%d")
 
         match frequency:
             case int():
                 try:
-                    for status_date, status in self.log[name].items():
+                    for status_date in sorted(self.log[name]):
+                        status = self.log[name][status_date]
                         if status == 'y':
-                            last_done = status_date
+                            tmp_last_done = datetime.strptime(status_date, "%Y-%m-%d")
+                            if not tmp_last_done.date() > selected_date.date():
+                                last_done = tmp_last_done
                 except KeyError:
                     pass
                 if 'last_done' in locals():
-                    last_done = datetime.strptime(last_done, "%Y-%m-%d")
-                    delta = date - last_done
-                    if 0 < delta.days < frequency:
-                        due = True
+                    delta = selected_date - last_done
+                    if 0 <= delta.days < frequency:
+                        due = False
             case list():
                 try:
                     frequency = [
                             re.search(r'(\d{1,2})[a-zA-Z]{2}',
                                 item).group(1) for item in frequency
                             ]
-                    date = date.strftime('%-d') # non-padded day of month
-                    if not date in frequency:
-                        due = True
+                    selected_date = selected_date.strftime('%-d') # non-padded day of month
+                    if not selected_date in frequency:
+                        due = False
                 except Exception:
                     frequency = [ item.capitalize() for item in frequency ]
-                    date = date.strftime('%A') # Day of week
-                    if not date.capitalize() in frequency:
-                        due = True
+                    selected_date = selected_date.strftime('%A') # Day of week
+                    if not selected_date.capitalize() in frequency:
+                        due = False
         return due
 
     def curses_loop(self, stdscr):
