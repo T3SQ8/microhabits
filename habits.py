@@ -129,6 +129,8 @@ class Habits:
 
         match frequency:
             case int():
+                if frequency == 0:
+                    due = False
                 try:
                     for status_date in sorted(self.log[name]):
                         status = self.log[name][status_date]

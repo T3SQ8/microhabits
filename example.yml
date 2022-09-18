@@ -10,3 +10,6 @@ habits:
 
   - name: Take a long walk on the beach # Example of long name
     # Default frequency daily
+
+  - name: Play videogames # Habits that don't need to be done but are tracked
+    frequency: 0
