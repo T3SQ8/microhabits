@@ -175,7 +175,9 @@ class Habits:
 
         while True:
             stdscr.erase()
-            message('keys: ') # TODO keys
+            message(
+                    'keys: k/UP,j/DOWN:Select habit   h/LEFT,l/RIGHT:Select day   SPACE/RETURN:Toggle status   t:Jump to today   q:Save and exit   Q:Exit'
+                    )
             header, habits = self.gen_content(now, DAYS_BACK, DAYS_FORWARD)
             for row, line in enumerate(header):
                 stdscr.addstr(row, 0, line)
@@ -189,15 +191,15 @@ class Habits:
                     stdscr.addstr(row, col, text)
                 row += 1
             key = stdscr.getch()
-            if key == curses.KEY_UP and current_row > 0:
+            if (key == curses.KEY_UP or key == ord('k')) and current_row > 0:
                 current_row -= 1
-            if key == curses.KEY_DOWN and current_row < len(habits) - 1:
+            if (key == curses.KEY_DOWN  or key == ord('j')) and current_row < len(habits) - 1:
                 current_row += 1
-            if key == curses.KEY_LEFT:
+            if key == curses.KEY_LEFT or key == ord('h'):
                 now = now - timedelta(days=1)
-            if key == curses.KEY_RIGHT:
+            if key == curses.KEY_RIGHT or key == ord('l'):
                 now = now + timedelta(days=1)
-            if key == curses.KEY_ENTER or key in [ord('\n'), ord('\r')]:
+            if key == curses.KEY_ENTER or key in [ord('\n'), ord('\r'), ord(' ')]:
                 self.toggle_status(
                     self.habits[current_row]['name'],
                     now.strftime('%Y-%m-%d')
