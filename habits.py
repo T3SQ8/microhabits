@@ -27,7 +27,10 @@ habits:
     - name: Play videogames # Habits that don't need to be done but are tracked
       frequency: 0
 """
+
 HELP_MESSAGE = 'keys: k/UP,j/DOWN:Select habit   h/LEFT,l/RIGHT:Select day   SPACE/RETURN:Toggle status   q:Save and exit   ?:Help'
+HABIT_NAME_CUTOFF = 25
+DATE_PADDING = 14
 
 DAYS_BACK = 3
 DAYS_FORWARD = 1
@@ -84,22 +87,26 @@ def curses_tui(habits, log, log_file):
     def gen_content(start_day, before_days, forward_days):
         before_days = -abs(before_days)
 
-        header = []
-        header.append(' '.ljust(66) + '-----------')
+        header = [' '.ljust(HABIT_NAME_CUTOFF)]
+        header[0] += ' ' * DATE_PADDING * abs(DAYS_BACK)
+        header[0] += '-' * DATE_PADDING
 
-        day_header = ' '.ljust(21)
+        day_header = ' '.ljust(HABIT_NAME_CUTOFF)
         i = before_days
         while before_days <= i <= forward_days:
             screen_date = start_day + timedelta(days=i)
-            day_header += screen_date.strftime('%d/%m (%a)').rjust(14)
+            day_header += screen_date.strftime('%d/%m (%a)').ljust(DATE_PADDING)
             i += 1
         header.append(day_header)
 
         habits_list = []
         for habit in habits:
             row = ''
-            name = habit['name'][:22]+'>' if len(habit['name']) > 22 else habit['name']
-            row += name.ljust(24)
+            if len(habit['name']) > HABIT_NAME_CUTOFF - 2:
+                name = habit['name'][:HABIT_NAME_CUTOFF - 2]+'>'
+            else:
+                name = habit['name']
+            row += name.ljust(HABIT_NAME_CUTOFF)
             i = before_days
             while before_days <= i <= forward_days:
                 screen_date = start_day + timedelta(days=i)
@@ -111,7 +118,7 @@ def curses_tui(habits, log, log_file):
                         textbox = '[ ]'
                     else:
                         textbox = '[o]'
-                row += textbox.ljust(14)
+                row += textbox.ljust(DATE_PADDING)
                 i += 1
             habits_list.append(row)
 
