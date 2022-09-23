@@ -183,7 +183,6 @@ def curses_tui(habits, log, log_file):
         row = 0
         current_row = 0
         curses.curs_set(0)
-        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
         while True:
             stdscr.erase()
             y_max, x_max = stdscr.getmaxyx()
@@ -194,9 +193,7 @@ def curses_tui(habits, log, log_file):
                 row += 1
             for idy, text in enumerate(menu_habits):
                 if idy == current_row:
-                    stdscr.attron(curses.color_pair(1))
-                    stdscr.addstr(row, col, text)
-                    stdscr.attroff(curses.color_pair(1))
+                    stdscr.addstr(row, col, text, curses.A_STANDOUT)
                 else:
                     stdscr.addstr(row, col, text)
                 row += 1
