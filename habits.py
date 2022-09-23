@@ -27,6 +27,7 @@ habits:
     - name: Play videogames # Habits that don't need to be done but are tracked
       frequency: 0
 """
+HELP_MESSAGE = 'keys: k/UP,j/DOWN:Select habit   h/LEFT,l/RIGHT:Select day   SPACE/RETURN:Toggle status   q:Save and exit   ?:Help'
 
 DAYS_BACK = 3
 DAYS_FORWARD = 1
@@ -80,19 +81,6 @@ def dump_log_to_file(log, log_file):
             writer.writerow(line)
 
 def curses_tui(habits, log, log_file):
-    def message(y_max, x_max, stdscr, msg, mode=None):
-        match mode:
-            case 'prompt':
-                pos = 2
-            case _:
-                pos = 1
-        msg = msg.ljust(x_max-1) # Pad the message so that it covers any previous message
-        stdscr.addstr(y_max-pos, 0, msg)
-
-    def save():
-        dump_log_to_file(log, log_file)
-        #message(f'Saved to {log_file}')
-
     def gen_content(start_day, before_days, forward_days):
         before_days = -abs(before_days)
 
@@ -190,14 +178,9 @@ def curses_tui(habits, log, log_file):
         curses.curs_set(0)
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)
         while True:
-            y_max, x_max = stdscr.getmaxyx()
             stdscr.erase()
-            message(
-                    y_max,
-                    x_max,
-                    stdscr,
-                    'keys: k/UP,j/DOWN:Select habit   h/LEFT,l/RIGHT:Select day   SPACE/RETURN:Toggle status   t:Jump to today   q:Save and exit   Q:Exit',
-                    )
+            y_max, x_max = stdscr.getmaxyx()
+            stdscr.addstr(y_max-1, 0, HELP_MESSAGE)
             header, menu_habits = gen_content(now, DAYS_BACK, DAYS_FORWARD)
             for row, line in enumerate(header):
                 stdscr.addstr(row, 0, line)
@@ -227,19 +210,14 @@ def curses_tui(habits, log, log_file):
             if key == ord('t'):
                 now = datetime.today()
             if key == ord('s'):
-                save()
+                dump_log_to_file(log, log_file)
+                stdscr.addstr(y_max-2, 0, f'Saved to {log_file}')
                 stdscr.getch()
             if key == ord('q'):
-                save()
+                dump_log_to_file(log, log_file)
                 sys.exit(1)
             if key == ord('Q'):
-                message(
-                        y_max,
-                        x_max,
-                        stdscr,
-                        'Do you want to quit without saving? (N/y)',
-                        'prompt'
-                        )
+                stdscr.addstr(y_max-2, 0, 'Do you want to quit without saving? [N/y]')
                 key = stdscr.getch()
                 if key == ord('y') or key == ord('Y'):
                     sys.exit(1)
