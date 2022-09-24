@@ -1,5 +1,16 @@
 #!/usr/bin/env python
 
+# TODO Overflowing habits
+# TODO Press "H" hide done/skipped/sufficed tasks
+# TODO Press "?" to all key binds
+# TODO Subtasks
+# TODO Don't crash when screen size is changed
+# TODO Measurable habits
+# TODO Highlight today's date
+# TODO Option change mark character
+# TODO Manpage
+# TODO Visual plot/graph
+
 import sys
 import os
 from datetime import datetime, timedelta
