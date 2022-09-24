@@ -177,27 +177,34 @@ def curses_tui(habits, log, log_file):
                         due = False
         return due
 
-    def curses_loop(stdscr):
+    def curses_loop(window):
         now = datetime.today()
         col = 0
         row = 0
         current_row = 0
+        y_max, x_max = window.getmaxyx()
+        y_max -= 1
+        x_max -= 1
         curses.curs_set(0)
+
+        def notify(msg):
+            msg = msg.ljust(x_max)[:x_max-1] # Pad and crop to cover older messages
+            window.addstr(y_max, 0, msg)
+
         while True:
-            stdscr.erase()
-            y_max, x_max = stdscr.getmaxyx()
-            stdscr.addstr(y_max-1, 0, HELP_MESSAGE)
+            window.refresh()
+            notify(HELP_MESSAGE)
             header, menu_habits = gen_content(now, DAYS_BACK, DAYS_FORWARD)
             for row, line in enumerate(header):
-                stdscr.addstr(row, 0, line)
+                window.addstr(row, 0, line)
                 row += 1
             for idy, text in enumerate(menu_habits):
                 if idy == current_row:
-                    stdscr.addstr(row, col, text, curses.A_STANDOUT)
+                    window.addstr(row, col, text, curses.A_STANDOUT)
                 else:
-                    stdscr.addstr(row, col, text)
+                    window.addstr(row, col, text)
                 row += 1
-            key = stdscr.getch()
+            key = window.getch()
             if (key == curses.KEY_UP or key == ord('k')) and current_row > 0:
                 current_row -= 1
             if (key == curses.KEY_DOWN  or key == ord('j')) and current_row < len(menu_habits) - 1:
@@ -215,14 +222,14 @@ def curses_tui(habits, log, log_file):
                 now = datetime.today()
             if key == ord('s'):
                 dump_log_to_file(log, log_file)
-                stdscr.addstr(y_max-2, 0, f'Saved to {log_file}')
-                stdscr.getch()
+                notify(f'Saved to {log_file}')
+                window.getch()
             if key == ord('q'):
                 dump_log_to_file(log, log_file)
                 sys.exit(1)
             if key == ord('Q'):
-                stdscr.addstr(y_max-2, 0, 'Do you want to quit without saving? [N/y]')
-                key = stdscr.getch()
+                notify('Do you want to quit without saving? [N/y]')
+                key = window.getch()
                 if key == ord('y') or key == ord('Y'):
                     sys.exit(1)
             if key == ord('g'):
