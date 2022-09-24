@@ -225,6 +225,10 @@ def curses_tui(habits, log, log_file):
                 key = stdscr.getch()
                 if key == ord('y') or key == ord('Y'):
                     sys.exit(1)
+            if key == ord('g'):
+                current_row = 0
+            if key == ord('G'):
+                current_row = len(habits)-1
 
     curses.wrapper(curses_loop)
 
