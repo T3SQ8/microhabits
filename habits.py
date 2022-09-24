@@ -55,7 +55,7 @@ def load_log_from_file(log_file):
     with open(log_file, 'r', encoding='utf-8') as file:
         for line in csv.DictReader(file):
             # Creates a 'log' dictionary, inside of each entry is another dictionary with dates and
-            # a corresponding etatuses. This process removes duplicate CSV entries by overwriting
+            # a corresponding statuses. This process removes duplicate CSV entries by overwriting
             # the date with the newest value.
             try:
                 log[line['name']]
@@ -301,8 +301,6 @@ def curses_tui(window, habits, log, log_file):
             func(*parms)
         except KeyError:
             pass
-
-        window.refresh()
 
 def main(habits_file, log_file):
     if not habits_file:
