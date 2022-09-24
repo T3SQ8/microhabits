@@ -28,7 +28,6 @@ habits:
       frequency: 0
 """
 
-HELP_MESSAGE = 'keys: k/UP,j/DOWN:Select habit   h/LEFT,l/RIGHT:Select day   SPACE/RETURN:Toggle status   q:Save and exit   ?:Help'
 HABIT_NAME_CUTOFF = 25
 DATE_PADDING = 14
 
@@ -83,7 +82,7 @@ def dump_log_to_file(log, log_file):
         for line in dump:
             writer.writerow(line)
 
-def curses_tui(habits, log, log_file):
+def curses_tui(window, habits, log, log_file):
     def gen_content(start_day, before_days, forward_days):
         before_days = -abs(before_days)
 
@@ -124,20 +123,6 @@ def curses_tui(habits, log, log_file):
 
         return header, habits_list
 
-    def toggle_status(habit_name, date):
-        if not habit_name in log:
-            log[habit_name] = {}
-        if not date in log[habit_name]:
-            log[habit_name][date] = {}
-
-        match log[habit_name][date]:
-            case 'y':
-                log[habit_name][date] = 's'
-            case 's':
-                del log[habit_name][date]
-            case _:
-                log[habit_name][date] = 'y'
-
     def check_due(habit, selected_date):
         due = True
         frequency = habit['frequency']
@@ -177,67 +162,147 @@ def curses_tui(habits, log, log_file):
                         due = False
         return due
 
-    def curses_loop(window):
-        now = datetime.today()
-        col = 0
-        row = 0
-        current_row = 0
-        y_max, x_max = window.getmaxyx()
-        y_max -= 1
-        x_max -= 1
-        curses.curs_set(0)
-
-        def notify(msg):
-            msg = msg.ljust(x_max)[:x_max-1] # Pad and crop to cover older messages
-            window.addstr(y_max, 0, msg)
-
-        while True:
-            window.refresh()
-            notify(HELP_MESSAGE)
-            header, menu_habits = gen_content(now, DAYS_BACK, DAYS_FORWARD)
-            for row, line in enumerate(header):
-                window.addstr(row, 0, line)
-                row += 1
-            for idy, text in enumerate(menu_habits):
-                if idy == current_row:
-                    window.addstr(row, col, text, curses.A_STANDOUT)
-                else:
-                    window.addstr(row, col, text)
-                row += 1
-            key = window.getch()
-            if (key == curses.KEY_UP or key == ord('k')) and current_row > 0:
-                current_row -= 1
-            if (key == curses.KEY_DOWN  or key == ord('j')) and current_row < len(menu_habits) - 1:
-                current_row += 1
-            if key == curses.KEY_LEFT or key == ord('h'):
-                now = now - timedelta(days=1)
-            if key == curses.KEY_RIGHT or key == ord('l'):
-                now = now + timedelta(days=1)
-            if key == curses.KEY_ENTER or key in [ord('\n'), ord('\r'), ord(' ')]:
-                toggle_status(
-                    habits[current_row]['name'],
-                    now.strftime('%Y-%m-%d')
-                    )
-            if key == ord('t'):
-                now = datetime.today()
-            if key == ord('s'):
-                dump_log_to_file(log, log_file)
-                notify(f'Saved to {log_file}')
-                window.getch()
-            if key == ord('q'):
-                dump_log_to_file(log, log_file)
-                sys.exit(1)
-            if key == ord('Q'):
-                notify('Do you want to quit without saving? [N/y]')
-                key = window.getch()
-                if key == ord('y') or key == ord('Y'):
-                    sys.exit(1)
-            if key == ord('g'):
+    def move(direction, dist=1):
+        nonlocal current_row
+        nonlocal selected_date
+        match direction:
+            case 'up':
+                if current_row > 0:
+                    current_row -= dist
+            case 'down':
+                if current_row < len(menu_habits) - 1:
+                    current_row += dist
+            case 'left':
+                selected_date -= timedelta(days=dist)
+            case 'right':
+                selected_date += timedelta(days=dist)
+            case 'today':
+                selected_date = datetime.today()
+            case 'top':
                 current_row = 0
-            if key == ord('G'):
+            case 'bottom':
                 current_row = len(habits)-1
 
-    curses.wrapper(curses_loop)
+    def toggle_status():
+        nonlocal habits
+        nonlocal selected_date
+        habit_name = habits[current_row]['name']
+        date = selected_date.strftime('%Y-%m-%d')
+        if not habit_name in log:
+            log[habit_name] = {}
+        if not date in log[habit_name]:
+            log[habit_name][date] = {}
+        match log[habit_name][date]:
+            case 'y':
+                log[habit_name][date] = 's'
+            case 's':
+                del log[habit_name][date]
+            case _:
+                log[habit_name][date] = 'y'
+
+    def force_exit():
+        notify('Do you want to quit without saving? [N/y]')
+        key = window.getch()
+        if key == ord('y') or key == ord('Y'):
+            sys.exit(1)
+
+    def save():
+        dump_log_to_file(log, log_file)
+        notify(f'Saved to {log_file}')
+
+    def save_quit():
+        save()
+        sys.exit(1)
+
+    def notify(msg):
+        nonlocal help_hold
+        msg = msg.ljust(x_max)[:x_max-1] # Pad and crop to cover older messages
+        window.addstr(y_max, 0, msg)
+        help_hold = True
+
+    # Dictionary key is the key pressed on the keyboard. The tuple contains the function to be
+    # executed in the loop later on when the key is pressed along with its arguments.
+    keys_main = {
+            curses.KEY_UP:    (move, ['up']),
+            curses.KEY_DOWN:  (move, ['down']),
+            curses.KEY_LEFT:  (move, ['left']),
+            curses.KEY_RIGHT: (move, ['right']),
+            curses.KEY_ENTER: (toggle_status, []),
+            ord('q'):         (save_quit, []),
+            }
+
+    # Key binds not shown at the bottom at the bottom of the screen
+    keys_misc = {
+            ord('k'):  (move, ['up']),
+            ord('j'):  (move, ['down']),
+            ord('h'):  (move, ['left']),
+            ord('l'):  (move, ['left']),
+            ord('s'):  (save, []),
+            ord('Q'):  (force_exit, []),
+            ord('t'):  (move, ['today']),
+            ord('g'):  (move, ['top']),
+            ord('G'):  (move, ['bottom']),
+            ord('\n'): (toggle_status, []),
+            ord('\r'): (toggle_status, []),
+            ord(' '):  (toggle_status, []),
+            }
+
+    help_message = 'keys: '
+    for key, action in keys_main.items():
+        func = action[0].__name__.replace('_', ' ')
+        action = ' '.join(action[1])
+        separator = ' '*3
+        match key:
+            case 259:
+                key = 'UP'
+            case 258:
+                key = 'DOWN'
+            case 260:
+                key = 'LEFT'
+            case 261:
+                key = 'RIGHT'
+            case 343:
+                key = 'RETURN'
+            case _:
+                key = chr(key)
+        help_message += f'{key}:{func} {action}' + separator
+
+    col = 0
+    row = 0
+    selected_date = datetime.today()
+    current_row = 0
+    y_max, x_max = window.getmaxyx()
+    y_max -= 1
+    x_max -= 1
+    curses.curs_set(0)
+    help_hold = False
+    notify(help_message)
+    while True:
+        window.refresh()
+
+        if help_hold: # To prevent other messages from being overwritten by the help message
+            help_hold = False
+        else:
+            notify(help_message)
+
+        header, menu_habits = gen_content(selected_date, DAYS_BACK, DAYS_FORWARD)
+        for row, line in enumerate(header):
+            window.addstr(row, 0, line)
+            row += 1
+        for idy, text in enumerate(menu_habits):
+            if idy == current_row:
+                window.addstr(row, col, text, curses.A_STANDOUT)
+            else:
+                window.addstr(row, col, text)
+            row += 1
+
+        try:
+            func, parms = (keys_main | keys_misc)[window.getch()]
+            func(*parms)
+        except KeyError:
+            pass
+
+        window.refresh()
 
 def main(habits_file, log_file):
     if not habits_file:
@@ -259,7 +324,7 @@ def main(habits_file, log_file):
 
     habits = load_habits_from_file(habits_file)
     log = load_log_from_file(log_file)
-    curses_tui(habits, log, log_file)
+    curses.wrapper(curses_tui, habits, log, log_file)
 
 if __name__ == '__main__':
     import argparse
