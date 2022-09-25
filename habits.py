@@ -216,7 +216,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
             ord('k'):  (move, ['up']),
             ord('j'):  (move, ['down']),
             ord('h'):  (move, ['left']),
-            ord('l'):  (move, ['left']),
+            ord('l'):  (move, ['right']),
             ord('s'):  (save, []),
             ord('Q'):  (force_exit, []),
             ord('t'):  (move, ['today']),
