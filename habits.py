@@ -93,6 +93,45 @@ def dump_log_to_file(log, log_file):
         for line in dump:
             writer.writerow(line)
 
+def is_due(habit, log, selected_date):
+    due = True
+    frequency = habit['frequency']
+    name = habit['name']
+    selected_date = datetime.strptime(selected_date, "%Y-%m-%d")
+
+    match frequency:
+        case int():
+            if frequency == 0:
+                due = False
+            try:
+                for status_date in sorted(log[name]):
+                    status = log[name][status_date]
+                    if status == 'y':
+                        tmp_last_done = datetime.strptime(status_date, "%Y-%m-%d")
+                        if tmp_last_done.date() < selected_date.date():
+                            last_done = tmp_last_done
+            except KeyError:
+                pass
+            if 'last_done' in locals():
+                delta = selected_date - last_done
+                if 0 <= delta.days < frequency:
+                    due = False
+        case list():
+            try:
+                frequency = [
+                        re.search(r'(\d{1,2})[a-zA-Z]{2}',
+                            item).group(1) for item in frequency
+                        ]
+                selected_date = selected_date.strftime('%-d') # non-padded day of month
+                if not selected_date in frequency:
+                    due = False
+            except AttributeError:
+                frequency = [ item.capitalize() for item in frequency ]
+                selected_date = selected_date.strftime('%A') # Day of week
+                if not selected_date.capitalize() in frequency:
+                    due = False
+    return due
+
 def curses_tui(window, habits, log, log_file):
     def gen_content(start_day, before_days, forward_days):
         before_days = -abs(before_days)
@@ -124,7 +163,7 @@ def curses_tui(window, habits, log, log_file):
                 try:
                     textbox = f'[{log[habit["name"]][screen_date]}]'
                 except KeyError:
-                    if check_due(habit, screen_date):
+                    if is_due(habit, log, screen_date):
                         textbox = '[ ]'
                     else:
                         textbox = '[o]'
@@ -133,45 +172,6 @@ def curses_tui(window, habits, log, log_file):
             habits_list.append(row)
 
         return header, habits_list
-
-    def check_due(habit, selected_date):
-        due = True
-        frequency = habit['frequency']
-        name = habit['name']
-        selected_date = datetime.strptime(selected_date, "%Y-%m-%d")
-
-        match frequency:
-            case int():
-                if frequency == 0:
-                    due = False
-                try:
-                    for status_date in sorted(log[name]):
-                        status = log[name][status_date]
-                        if status == 'y':
-                            tmp_last_done = datetime.strptime(status_date, "%Y-%m-%d")
-                            if tmp_last_done.date() < selected_date.date():
-                                last_done = tmp_last_done
-                except KeyError:
-                    pass
-                if 'last_done' in locals():
-                    delta = selected_date - last_done
-                    if 0 <= delta.days < frequency:
-                        due = False
-            case list():
-                try:
-                    frequency = [
-                            re.search(r'(\d{1,2})[a-zA-Z]{2}',
-                                item).group(1) for item in frequency
-                            ]
-                    selected_date = selected_date.strftime('%-d') # non-padded day of month
-                    if not selected_date in frequency:
-                        due = False
-                except AttributeError:
-                    frequency = [ item.capitalize() for item in frequency ]
-                    selected_date = selected_date.strftime('%A') # Day of week
-                    if not selected_date.capitalize() in frequency:
-                        due = False
-        return due
 
     def move(direction, dist=1):
         nonlocal current_row
