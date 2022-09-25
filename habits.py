@@ -189,6 +189,12 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
         window.addstr(y_max, 0, msg)
         help_hold = True
 
+    def toggle_hide():
+        nonlocal hide_completed
+        nonlocal current_row
+        hide_completed = not hide_completed
+        current_row = 0
+
     # Dictionary key is the key pressed on the keyboard. The tuple contains the function to be
     # executed in the loop later on when the key is pressed along with its arguments.
     keys_main = {
@@ -211,6 +217,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
             ord('t'):  (move, ['today']),
             ord('g'):  (move, ['top']),
             ord('G'):  (move, ['bottom']),
+            ord('H'):  (toggle_hide, []),
             ord('\n'): (toggle_status, []),
             ord('\r'): (toggle_status, []),
             ord(' '):  (toggle_status, []),
@@ -245,10 +252,18 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
     x_max -= 1
     curses.curs_set(0)
     help_hold = False
+    hide_completed = False
     notify(help_message)
 
+    def print_highlighted(row, col, text):
+        window.addstr(row, col, text, curses.A_STANDOUT)
+
+    def print_normal(row, col, text):
+        window.addstr(row, col, text)
+
     while True:
-        window.refresh()
+        window.erase()
+        #window.refresh()
 
         if help_hold: # To prevent other messages from being overwritten by the help message
             help_hold = False
@@ -289,12 +304,27 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
         for row, line in enumerate(header):
             window.addstr(row, 0, line)
         row += 1
-        for idy, text in enumerate(menu_habits):
-            if idy == current_row:
-                window.addstr(row, col, text, curses.A_STANDOUT)
-            else:
-                window.addstr(row, col, text)
-            row += 1
+
+        if hide_completed:
+            idy = 0
+            for _, text in enumerate(menu_habits):
+                try:
+                    log[habits[idy]['name']][selected_date.strftime('%Y-%m-%d')]
+                    del menu_habits[row]
+                except KeyError:
+                    if idy == current_row:
+                        print_highlighted(row, col, text)
+                    else:
+                        print_normal(row, col, text)
+                    row += 1
+                idy += 1
+        else:
+            for idy, text in enumerate(menu_habits):
+                if idy == current_row:
+                    print_highlighted(row, col, text)
+                else:
+                    print_normal(row, col, text)
+                row += 1
 
         try:
             func, parms = (keys_main | keys_misc)[window.getch()]
