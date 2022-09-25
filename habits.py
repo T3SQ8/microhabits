@@ -7,7 +7,6 @@
 # TODO Don't crash when screen size is changed
 # TODO INI configs
 # TODO Measurable habits
-# TODO Highlight today's date
 # TODO Option change mark character
 # TODO Manpage
 # TODO Visual plot/graph
@@ -130,6 +129,12 @@ def is_due(habit, log, selected_date):
                     due = False
     return due
 
+def screen_date_format(dt):
+    return dt.strftime('%d/%m (%a)')
+
+def iso_date_format(dt):
+    return dt.strftime('%Y-%m-%d')
+
 def curses_tui(window, habits, log, log_file, days_back, days_forward):
     def move(direction, dist=1):
         nonlocal current_row
@@ -146,7 +151,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
             case 'right':
                 selected_date += timedelta(days=dist)
             case 'today':
-                selected_date = datetime.today()
+                selected_date = today
             case 'top':
                 current_row = 0
             case 'bottom':
@@ -156,7 +161,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
         nonlocal habits
         nonlocal selected_date
         habit_name = habits[current_row]['name']
-        date = selected_date.strftime('%Y-%m-%d')
+        date = iso_date_format(selected_date)
         if not habit_name in log:
             log[habit_name] = {}
         if not date in log[habit_name]:
@@ -243,42 +248,42 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                 key = chr(key)
         help_message += f'{key}:{func} {action}' + separator
 
-    col = 0
-    row = 0
-    selected_date = datetime.today()
-    current_row = 0
-    y_max, x_max = window.getmaxyx()
-    y_max -= 1
-    x_max -= 1
-    curses.curs_set(0)
-    help_hold = False
-    hide_completed = False
-    notify(help_message)
-
     def print_highlighted(row, col, text):
         window.addstr(row, col, text, curses.A_STANDOUT)
 
     def print_normal(row, col, text):
         window.addstr(row, col, text)
 
+    col = 0
+    row = 0
+    today = datetime.today()
+    selected_date = today
+    current_row = 0
+    help_hold = False
+    hide_completed = False
+
+    y_max, x_max = window.getmaxyx()
+    y_max -= 1
+    x_max -= 1
+    notify(help_message)
+    curses.curs_set(0)
+
     while True:
-        window.erase()
-        #window.refresh()
+        window.refresh()
 
         if help_hold: # To prevent other messages from being overwritten by the help message
             help_hold = False
         else:
             notify(help_message)
 
-        header = [
-                ' '.ljust(HABIT_NAME_CUTOFF),
-                ' '.ljust(HABIT_NAME_CUTOFF),
-                ]
-        header[0] += ' ' * DATE_PADDING * abs(days_back)
-        header[0] += '-' * DATE_PADDING
-        for i in range(days_back, days_forward + 1):
-            screen_date = selected_date + timedelta(days=i)
-            header[1] += screen_date.strftime('%d/%m (%a)').ljust(DATE_PADDING)
+        window.addstr(0, HABIT_NAME_CUTOFF + DATE_PADDING * abs(days_back), '-' * DATE_PADDING)
+        i = 0
+        for delta in range(days_back, days_forward + 1):
+            screen_date = selected_date + timedelta(days=delta)
+            bold = curses.A_BOLD if screen_date == today else curses.A_NORMAL
+            screen_date = screen_date_format(screen_date)
+            window.addstr(1, HABIT_NAME_CUTOFF + DATE_PADDING*i, screen_date, bold)
+            i += 1
 
         menu_habits = []
         for habit in habits:
@@ -290,7 +295,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
             row += name.ljust(HABIT_NAME_CUTOFF)
             for i in range(days_back, days_forward + 1):
                 screen_date = selected_date + timedelta(days=i)
-                screen_date = screen_date.strftime('%Y-%m-%d')
+                screen_date = iso_date_format(screen_date)
                 try:
                     textbox = f'[{log[habit["name"]][screen_date]}]'
                 except KeyError:
@@ -300,10 +305,6 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                         textbox = '[o]'
                 row += textbox.ljust(DATE_PADDING)
             menu_habits.append(row)
-
-        for row, line in enumerate(header):
-            window.addstr(row, 0, line)
-        row += 1
 
         if hide_completed:
             idy = 0
