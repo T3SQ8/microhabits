@@ -144,7 +144,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                 if current_row > 0:
                     current_row -= dist
             case 'down':
-                if current_row < len(menu_habits) - 1:
+                if current_row < len(habits) - 1:
                     current_row += dist
             case 'left':
                 selected_date -= timedelta(days=dist)
@@ -248,12 +248,6 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                 key = chr(key)
         help_message += f'{key}:{func} {action}' + separator
 
-    def print_highlighted(row, col, text):
-        window.addstr(row, col, text, curses.A_STANDOUT)
-
-    def print_normal(row, col, text):
-        window.addstr(row, col, text)
-
     col = 0
     row = 0
     today = datetime.today()
@@ -280,52 +274,33 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
         i = 0
         for delta in range(days_back, days_forward + 1):
             screen_date = selected_date + timedelta(days=delta)
-            bold = curses.A_BOLD if screen_date == today else curses.A_NORMAL
+            attrb = curses.A_BOLD if screen_date == today else curses.A_NORMAL
             screen_date = screen_date_format(screen_date)
-            window.addstr(1, HABIT_NAME_CUTOFF + DATE_PADDING*i, screen_date, bold)
+            window.addstr(1, HABIT_NAME_CUTOFF + DATE_PADDING*i, screen_date, attrb)
             i += 1
 
-        menu_habits = []
-        for habit in habits:
-            row = ''
+        for idy, habit in enumerate(habits):
+            visual_y = idy + 2 # Margin for header
             if len(habit['name']) > HABIT_NAME_CUTOFF - 2:
                 name = habit['name'][:HABIT_NAME_CUTOFF - 2]+'>'
             else:
                 name = habit['name']
-            row += name.ljust(HABIT_NAME_CUTOFF)
-            for i in range(days_back, days_forward + 1):
-                screen_date = selected_date + timedelta(days=i)
+            attrb = curses.A_STANDOUT if current_row == idy else curses.A_NORMAL
+            window.addstr(visual_y, 0, name)
+            i = 0
+            for delta in range(days_back, days_forward + 1):
+                screen_date = selected_date + timedelta(days=delta)
                 screen_date = iso_date_format(screen_date)
                 try:
-                    textbox = f'[{log[habit["name"]][screen_date]}]'
+                    text = f'[{log[habit["name"]][screen_date]}]'
                 except KeyError:
                     if is_due(habit, log, screen_date):
-                        textbox = '[ ]'
+                        text = '[ ]'
                     else:
-                        textbox = '[o]'
-                row += textbox.ljust(DATE_PADDING)
-            menu_habits.append(row)
-
-        if hide_completed:
-            idy = 0
-            for _, text in enumerate(menu_habits):
-                try:
-                    log[habits[idy]['name']][selected_date.strftime('%Y-%m-%d')]
-                    del menu_habits[row]
-                except KeyError:
-                    if idy == current_row:
-                        print_highlighted(row, col, text)
-                    else:
-                        print_normal(row, col, text)
-                    row += 1
-                idy += 1
-        else:
-            for idy, text in enumerate(menu_habits):
-                if idy == current_row:
-                    print_highlighted(row, col, text)
-                else:
-                    print_normal(row, col, text)
-                row += 1
+                        text = '[o]'
+                window.addstr(visual_y, HABIT_NAME_CUTOFF + DATE_PADDING*i, text)
+                i += 1
+            window.chgat(visual_y, 0, attrb) # Apply attribute to entire line
 
         try:
             func, parms = (keys_main | keys_misc)[window.getch()]
