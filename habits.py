@@ -338,11 +338,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Minimalistic habit tracker')
     parser.add_argument('-f', '--file', dest='habits_file', metavar='FILE',
             help='Habits file in YAML format')
-    parser.add_argument('-l', '--log_file',
+    parser.add_argument('-l', '--log_file', metavar='FILE',
             help='File to log activity to')
     parser.add_argument('-b', '--days_back', default=3, type=int, metavar='DAYS',
-            help='Days before the selected date to display')
+            help='Days before the selected date to display (default: %(default)s)')
     parser.add_argument('-w', '--days_forward', default=1, type=int, metavar='DAYS',
-            help='Days after the selected date to display')
+            help='Days after the selected date to display (default: %(default)s)')
     args = parser.parse_args()
     main(args.habits_file, args.log_file, args.days_back, args.days_forward)
