@@ -42,9 +42,6 @@ habits:
 HABIT_NAME_CUTOFF = 25
 DATE_PADDING = 14
 
-DAYS_BACK = 3
-DAYS_FORWARD = 1
-
 def load_habits_from_file(habits_file):
     if not os.path.exists(habits_file):
         with open(habits_file, 'w', encoding='utf-8') as file:
@@ -132,12 +129,12 @@ def is_due(habit, log, selected_date):
                     due = False
     return due
 
-def curses_tui(window, habits, log, log_file):
+def curses_tui(window, habits, log, log_file, days_back, days_forward):
     def gen_content(start_day, before_days, forward_days):
         before_days = -abs(before_days)
 
         header = [' '.ljust(HABIT_NAME_CUTOFF)]
-        header[0] += ' ' * DATE_PADDING * abs(DAYS_BACK)
+        header[0] += ' ' * DATE_PADDING * abs(days_back)
         header[0] += '-' * DATE_PADDING
 
         day_header = ' '.ljust(HABIT_NAME_CUTOFF)
@@ -296,7 +293,7 @@ def curses_tui(window, habits, log, log_file):
         else:
             notify(help_message)
 
-        header, menu_habits = gen_content(selected_date, DAYS_BACK, DAYS_FORWARD)
+        header, menu_habits = gen_content(selected_date, days_back, days_forward)
         for row, line in enumerate(header):
             window.addstr(row, 0, line)
             row += 1
@@ -313,7 +310,7 @@ def curses_tui(window, habits, log, log_file):
         except KeyError:
             pass
 
-def main(habits_file, log_file):
+def main(habits_file, log_file, days_back, days_forward):
     if not habits_file:
         try:
             habits_file = os.environ['XDG_CONFIG_HOME'] + '/microhabits/habits.yml'
@@ -333,7 +330,7 @@ def main(habits_file, log_file):
 
     habits = load_habits_from_file(habits_file)
     log = load_log_from_file(log_file)
-    curses.wrapper(curses_tui, habits, log, log_file)
+    curses.wrapper(curses_tui, habits, log, log_file, days_back, days_forward)
 
 if __name__ == '__main__':
     import argparse
@@ -343,5 +340,9 @@ if __name__ == '__main__':
             help='Habits file in YAML format')
     parser.add_argument('-l', '--log_file',
             help='File to log activity to')
+    parser.add_argument('-b', '--days_back', default=3, type=int, metavar='DAYS',
+            help='Days before the selected date to display')
+    parser.add_argument('-w', '--days_forward', default=1, type=int, metavar='DAYS',
+            help='Days after the selected date to display')
     args = parser.parse_args()
-    main(args.habits_file, args.log_file)
+    main(args.habits_file, args.log_file, args.days_back, args.days_forward)
