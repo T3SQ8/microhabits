@@ -5,6 +5,7 @@
 # TODO Press "?" to all key binds
 # TODO Subtasks
 # TODO Don't crash when screen size is changed
+# TODO INI configs
 # TODO Measurable habits
 # TODO Highlight today's date
 # TODO Option change mark character
@@ -130,46 +131,6 @@ def is_due(habit, log, selected_date):
     return due
 
 def curses_tui(window, habits, log, log_file, days_back, days_forward):
-    def gen_content(start_day, before_days, forward_days):
-        before_days = -abs(before_days)
-
-        header = [' '.ljust(HABIT_NAME_CUTOFF)]
-        header[0] += ' ' * DATE_PADDING * abs(days_back)
-        header[0] += '-' * DATE_PADDING
-
-        day_header = ' '.ljust(HABIT_NAME_CUTOFF)
-        i = before_days
-        while before_days <= i <= forward_days:
-            screen_date = start_day + timedelta(days=i)
-            day_header += screen_date.strftime('%d/%m (%a)').ljust(DATE_PADDING)
-            i += 1
-        header.append(day_header)
-
-        habits_list = []
-        for habit in habits:
-            row = ''
-            if len(habit['name']) > HABIT_NAME_CUTOFF - 2:
-                name = habit['name'][:HABIT_NAME_CUTOFF - 2]+'>'
-            else:
-                name = habit['name']
-            row += name.ljust(HABIT_NAME_CUTOFF)
-            i = before_days
-            while before_days <= i <= forward_days:
-                screen_date = start_day + timedelta(days=i)
-                screen_date = screen_date.strftime('%Y-%m-%d')
-                try:
-                    textbox = f'[{log[habit["name"]][screen_date]}]'
-                except KeyError:
-                    if is_due(habit, log, screen_date):
-                        textbox = '[ ]'
-                    else:
-                        textbox = '[o]'
-                row += textbox.ljust(DATE_PADDING)
-                i += 1
-            habits_list.append(row)
-
-        return header, habits_list
-
     def move(direction, dist=1):
         nonlocal current_row
         nonlocal selected_date
@@ -285,6 +246,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
     curses.curs_set(0)
     help_hold = False
     notify(help_message)
+
     while True:
         window.refresh()
 
@@ -293,10 +255,40 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
         else:
             notify(help_message)
 
-        header, menu_habits = gen_content(selected_date, days_back, days_forward)
+        header = [
+                ' '.ljust(HABIT_NAME_CUTOFF),
+                ' '.ljust(HABIT_NAME_CUTOFF),
+                ]
+        header[0] += ' ' * DATE_PADDING * abs(days_back)
+        header[0] += '-' * DATE_PADDING
+        for i in range(days_back, days_forward + 1):
+            screen_date = selected_date + timedelta(days=i)
+            header[1] += screen_date.strftime('%d/%m (%a)').ljust(DATE_PADDING)
+
+        menu_habits = []
+        for habit in habits:
+            row = ''
+            if len(habit['name']) > HABIT_NAME_CUTOFF - 2:
+                name = habit['name'][:HABIT_NAME_CUTOFF - 2]+'>'
+            else:
+                name = habit['name']
+            row += name.ljust(HABIT_NAME_CUTOFF)
+            for i in range(days_back, days_forward + 1):
+                screen_date = selected_date + timedelta(days=i)
+                screen_date = screen_date.strftime('%Y-%m-%d')
+                try:
+                    textbox = f'[{log[habit["name"]][screen_date]}]'
+                except KeyError:
+                    if is_due(habit, log, screen_date):
+                        textbox = '[ ]'
+                    else:
+                        textbox = '[o]'
+                row += textbox.ljust(DATE_PADDING)
+            menu_habits.append(row)
+
         for row, line in enumerate(header):
             window.addstr(row, 0, line)
-            row += 1
+        row += 1
         for idy, text in enumerate(menu_habits):
             if idy == current_row:
                 window.addstr(row, col, text, curses.A_STANDOUT)
@@ -311,6 +303,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
             pass
 
 def main(habits_file, log_file, days_back, days_forward):
+    days_back = -abs(days_back)
     if not habits_file:
         try:
             habits_file = os.environ['XDG_CONFIG_HOME'] + '/microhabits/habits.yml'
