@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 # TODO Overflowing habits
-# TODO Press "H" hide done/skipped/sufficed tasks
 # TODO Press "?" to all key binds
 # TODO Subtasks
 # TODO Don't crash when screen size is changed
@@ -94,39 +93,47 @@ def is_due(habit, log, selected_date):
     due = True
     frequency = habit['frequency']
     name = habit['name']
+
+    try:
+        if log[name][selected_date] in ['y', 's']:
+            due = False
+    except KeyError:
+        pass
+
     selected_date = datetime.strptime(selected_date, "%Y-%m-%d")
 
-    match frequency:
-        case int():
-            if frequency == 0:
-                due = False
-            try:
-                for status_date in sorted(log[name]):
-                    status = log[name][status_date]
-                    if status == 'y':
-                        tmp_last_done = datetime.strptime(status_date, "%Y-%m-%d")
-                        if tmp_last_done.date() < selected_date.date():
-                            last_done = tmp_last_done
-            except KeyError:
-                pass
-            if 'last_done' in locals():
-                delta = selected_date - last_done
-                if 0 <= delta.days < frequency:
+    if due:
+        match frequency:
+            case int():
+                if frequency == 0:
                     due = False
-        case list():
-            try:
-                frequency = [
-                        re.search(r'(\d{1,2})[a-zA-Z]{2}',
-                            item).group(1) for item in frequency
-                        ]
-                selected_date = selected_date.strftime('%-d') # non-padded day of month
-                if not selected_date in frequency:
-                    due = False
-            except AttributeError:
-                frequency = [ item.capitalize() for item in frequency ]
-                selected_date = selected_date.strftime('%A') # Day of week
-                if not selected_date.capitalize() in frequency:
-                    due = False
+                try:
+                    for status_date in sorted(log[name]):
+                        status = log[name][status_date]
+                        if status == 'y':
+                            tmp_last_done = datetime.strptime(status_date, "%Y-%m-%d")
+                            if tmp_last_done.date() < selected_date.date():
+                                last_done = tmp_last_done
+                except KeyError:
+                    pass
+                if 'last_done' in locals():
+                    delta = selected_date - last_done
+                    if 0 <= delta.days < frequency:
+                        due = False
+            case list():
+                try:
+                    frequency = [
+                            re.search(r'(\d{1,2})[a-zA-Z]{2}',
+                                item).group(1) for item in frequency
+                            ]
+                    selected_date = selected_date.strftime('%-d') # non-padded day of month
+                    if not selected_date in frequency:
+                        due = False
+                except AttributeError:
+                    frequency = [ item.capitalize() for item in frequency ]
+                    selected_date = selected_date.strftime('%A') # Day of week
+                    if not selected_date.capitalize() in frequency:
+                        due = False
     return due
 
 def screen_date_format(dt):
@@ -196,9 +203,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
 
     def toggle_hide():
         nonlocal hide_completed
-        nonlocal current_row
         hide_completed = not hide_completed
-        current_row = 0
 
     # Dictionary key is the key pressed on the keyboard. The tuple contains the function to be
     # executed in the loop later on when the key is pressed along with its arguments.
@@ -280,15 +285,15 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
             i += 1
 
         for idy, habit in enumerate(habits):
-            visual_y = idy + 2 # Margin for header
-            if len(habit['name']) > HABIT_NAME_CUTOFF - 2:
-                name = habit['name'][:HABIT_NAME_CUTOFF - 2]+'>'
-            else:
-                name = habit['name']
-            attrb = curses.A_STANDOUT if current_row == idy else curses.A_NORMAL
-            window.addstr(visual_y, 0, name)
+            attrb = curses.A_BOLD
             i = 0
             for delta in range(days_back, days_forward + 1):
+                visual_y = idy + 2 # Margin for header
+                if len(habit['name']) > HABIT_NAME_CUTOFF - 2:
+                    name = habit['name'][:HABIT_NAME_CUTOFF - 2]+'>'
+                else:
+                    name = habit['name']
+                window.addstr(visual_y, 0, name)
                 screen_date = selected_date + timedelta(days=delta)
                 screen_date = iso_date_format(screen_date)
                 try:
@@ -298,8 +303,12 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                         text = '[ ]'
                     else:
                         text = '[o]'
-                window.addstr(visual_y, HABIT_NAME_CUTOFF + DATE_PADDING*i, text)
+                if hide_completed and not is_due(habit, log, iso_date_format(selected_date)):
+                    attrb = curses.A_DIM
+                window.addstr(visual_y, HABIT_NAME_CUTOFF + DATE_PADDING*i, text, attrb)
                 i += 1
+            if current_row == idy:
+                attrb = attrb | curses.A_STANDOUT
             window.chgat(visual_y, 0, attrb) # Apply attribute to entire line
 
         try:
