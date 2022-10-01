@@ -3,7 +3,6 @@
 # TODO Overflowing habits
 # TODO Press "?" to all key binds
 # TODO Subtasks
-# TODO Don't crash when screen size is changed
 # TODO INI configs
 # TODO Measurable habits
 # TODO Option change mark character
@@ -19,6 +18,8 @@ import re
 import yaml
 
 FIELDNAMES = ['date', 'name', 'status']
+HEADER_HEIGHT = 2
+MESSAGE_HEIGHT = 1
 
 YAML_EXAMPLE_DATA = """
 habits:
@@ -197,13 +198,25 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
 
     def notify(msg):
         nonlocal help_hold
+        nonlocal message_pad
         msg = msg.ljust(x_max)[:x_max-1] # Pad and crop to cover older messages
-        window.addstr(y_max, 0, msg)
+        message_pad.addstr(0, 0, msg)
         help_hold = True
 
     def toggle_hide():
         nonlocal hide_completed
         hide_completed = not hide_completed
+
+    def resize():
+        nonlocal y_max
+        nonlocal x_max
+        nonlocal header_pad
+        nonlocal message_pad
+        nonlocal habits_pad
+        y_max, x_max = window.getmaxyx()
+        y_max -= 1
+        x_max -= 1
+        window.clear()
 
     # Dictionary key is the key pressed on the keyboard. The tuple contains the function to be
     # executed in the loop later on when the key is pressed along with its arguments.
@@ -233,6 +246,10 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
             ord(' '):  (toggle_status, []),
             }
 
+    keys_internal = {
+            curses.KEY_RESIZE: (resize, []),
+            }
+
     help_message = 'keys: '
     for key, action in keys_main.items():
         func = action[0].__name__.replace('_', ' ')
@@ -255,43 +272,44 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
 
     today = datetime.today()
     selected_date = today
+    y_max = 0
+    x_max = 0
     current_row = 0
     help_hold = False
     hide_completed = False
-
-    y_max, x_max = window.getmaxyx()
-    y_max -= 1
-    x_max -= 1
-    notify(help_message)
     curses.curs_set(0)
 
-    while True:
-        window.refresh()
+    resize()
+    header_pad = curses.newpad(HEADER_HEIGHT, 1000)
+    message_pad = curses.newpad(MESSAGE_HEIGHT, 1000)
+    habits_pad = curses.newpad(y_max - HEADER_HEIGHT - MESSAGE_HEIGHT, 1000)
 
+    notify(help_message)
+
+    while True:
         if help_hold: # To prevent other messages from being overwritten by the help message
             help_hold = False
         else:
             notify(help_message)
 
-        window.addstr(0, HABIT_NAME_CUTOFF + DATE_PADDING * abs(days_back), '-' * DATE_PADDING)
+        header_pad.addstr(0, HABIT_NAME_CUTOFF + DATE_PADDING * abs(days_back), '-' * DATE_PADDING)
         i = 0
         for delta in range(days_back, days_forward + 1):
             screen_date = selected_date + timedelta(days=delta)
             attrb = curses.A_BOLD if screen_date == today else curses.A_NORMAL
             screen_date = screen_date_format(screen_date)
-            window.addstr(1, HABIT_NAME_CUTOFF + DATE_PADDING*i, screen_date, attrb)
+            header_pad.addstr(1, HABIT_NAME_CUTOFF + DATE_PADDING*i, screen_date, attrb)
             i += 1
 
         for idy, habit in enumerate(habits):
             attrb = curses.A_BOLD
             i = 0
             for delta in range(days_back, days_forward + 1):
-                visual_y = idy + 2 # Margin for header
                 if len(habit['name']) > HABIT_NAME_CUTOFF - 2:
                     name = habit['name'][:HABIT_NAME_CUTOFF - 2]+'>'
                 else:
                     name = habit['name']
-                window.addstr(visual_y, 0, name)
+                habits_pad.addstr(idy, 0, name)
                 screen_date = selected_date + timedelta(days=delta)
                 screen_date = iso_date_format(screen_date)
                 try:
@@ -303,18 +321,23 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                         text = '[o]'
                 if hide_completed and not is_due(habit, log, iso_date_format(selected_date)):
                     attrb = curses.A_DIM
-                window.addstr(visual_y, HABIT_NAME_CUTOFF + DATE_PADDING*i, text)
+                habits_pad.addstr(idy, HABIT_NAME_CUTOFF + DATE_PADDING*i, text)
                 i += 1
-            window.chgat(visual_y, 0, attrb)
+            habits_pad.chgat(idy, 0, attrb)
 
-        window.move(current_row + 2, 0)
+        habits_pad.move(current_row, 0)
         attrb = curses.A_STANDOUT
-        if bool(window.inch(current_row + 2, 0) & curses.A_BOLD):
+        if bool(habits_pad.inch(current_row, 0) & curses.A_BOLD):
             attrb = attrb | curses.A_BOLD
-        window.chgat(current_row + 2, 0, attrb)
+        habits_pad.chgat(current_row, 0, attrb)
+
+        window.refresh()
+        header_pad.refresh(0,0,  0,0,             HEADER_HEIGHT,x_max)
+        habits_pad.refresh(0,0,  HEADER_HEIGHT,0, y_max-MESSAGE_HEIGHT,x_max)
+        message_pad.refresh(0,0, y_max,0,         y_max,x_max)
 
         try:
-            func, parms = (keys_main | keys_misc)[window.getch()]
+            func, parms = (keys_main | keys_misc | keys_internal)[window.getch()]
             func(*parms)
         except KeyError:
             pass
