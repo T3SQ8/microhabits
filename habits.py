@@ -253,8 +253,6 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                 key = chr(key)
         help_message += f'{key}:{func} {action}' + separator
 
-    col = 0
-    row = 0
     today = datetime.today()
     selected_date = today
     current_row = 0
@@ -305,11 +303,15 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                         text = '[o]'
                 if hide_completed and not is_due(habit, log, iso_date_format(selected_date)):
                     attrb = curses.A_DIM
-                window.addstr(visual_y, HABIT_NAME_CUTOFF + DATE_PADDING*i, text, attrb)
+                window.addstr(visual_y, HABIT_NAME_CUTOFF + DATE_PADDING*i, text)
                 i += 1
-            if current_row == idy:
-                attrb = attrb | curses.A_STANDOUT
-            window.chgat(visual_y, 0, attrb) # Apply attribute to entire line
+            window.chgat(visual_y, 0, attrb)
+
+        window.move(current_row + 2, 0)
+        attrb = curses.A_STANDOUT
+        if bool(window.inch(current_row + 2, 0) & curses.A_BOLD):
+            attrb = attrb | curses.A_BOLD
+        window.chgat(current_row + 2, 0, attrb)
 
         try:
             func, parms = (keys_main | keys_misc)[window.getch()]
