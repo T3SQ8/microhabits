@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-# TODO Overflowing habits
 # TODO Press "?" to all key binds
 # TODO Subtasks
 # TODO INI configs
@@ -147,13 +146,18 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
     def move(direction, dist=1):
         nonlocal current_row
         nonlocal selected_date
+        nonlocal scroll
         match direction:
             case 'up':
                 if current_row > 0:
                     current_row -= dist
+                if current_row < scroll:
+                    scroll -= 1
             case 'down':
                 if current_row < len(habits) - 1:
                     current_row += dist
+                if current_row > y_max - HEADER_HEIGHT - MESSAGE_HEIGHT + scroll:
+                    scroll += 1
             case 'left':
                 selected_date -= timedelta(days=dist)
             case 'right':
@@ -162,8 +166,10 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
                 selected_date = today
             case 'top':
                 current_row = 0
+                scroll = 0
             case 'bottom':
                 current_row = len(habits)-1
+                scroll = len(habits) - y_max + HEADER_HEIGHT
 
     def toggle_status():
         nonlocal habits
@@ -278,11 +284,12 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
     help_hold = False
     hide_completed = False
     curses.curs_set(0)
+    scroll = 0
 
     resize()
     header_pad = curses.newpad(HEADER_HEIGHT, 1000)
     message_pad = curses.newpad(MESSAGE_HEIGHT, 1000)
-    habits_pad = curses.newpad(y_max - HEADER_HEIGHT - MESSAGE_HEIGHT, 1000)
+    habits_pad = curses.newpad(len(habits), 1000)
 
     notify(help_message)
 
@@ -333,7 +340,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
 
         window.refresh()
         header_pad.refresh(0,0,  0,0,             HEADER_HEIGHT,x_max)
-        habits_pad.refresh(0,0,  HEADER_HEIGHT,0, y_max-MESSAGE_HEIGHT,x_max)
+        habits_pad.refresh(scroll,0,  HEADER_HEIGHT,0, y_max-MESSAGE_HEIGHT,x_max)
         message_pad.refresh(0,0, y_max,0,         y_max,x_max)
 
         try:
