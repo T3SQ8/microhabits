@@ -1,5 +1,15 @@
 #!/usr/bin/env python
 
+# TODO Lock file
+# TODO "S" to mark all tasks as skipped
+# TODO curses class
+# TODO cut off habit names with addnstr???
+# TODO break instead of sys.exit()
+# TODO (help_hold = False) to remove quit message immediately
+# TODO add explanatory comments
+# TODO module docstrings
+# TODO Press n to skip to next undone habit
+
 # TODO Press "?" to all key binds
 # TODO Subtasks
 # TODO INI configs
@@ -16,7 +26,6 @@ import curses
 import re
 import yaml
 
-FIELDNAMES = ['date', 'name', 'status']
 HEADER_HEIGHT = 2
 MESSAGE_HEIGHT = 1
 
@@ -42,11 +51,7 @@ HABIT_NAME_CUTOFF = 25
 DATE_PADDING = 14
 
 def load_habits_from_file(habits_file):
-    if not os.path.exists(habits_file):
-        with open(habits_file, 'w', encoding='utf-8') as file:
-            file.write(YAML_EXAMPLE_DATA)
-    with open(habits_file, 'r', encoding='utf-8') as file:
-        habits = yaml.safe_load(file)['habits']
+    habits = yaml.safe_load(habits_file)['habits']
     for habit in habits: # Default frequency daily
         if not 'frequency' in habit:
             habit['frequency'] = 1
@@ -54,24 +59,19 @@ def load_habits_from_file(habits_file):
     return habits
 
 def load_log_from_file(log_file):
-    if not os.path.exists(log_file):
-        with open(log_file, 'w', encoding='utf-8') as file:
-            writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
-            writer.writeheader()
     log = {}
-    with open(log_file, 'r', encoding='utf-8') as file:
-        for line in csv.DictReader(file):
-            # Creates a 'log' dictionary, inside of each entry is another dictionary with dates and
-            # a corresponding statuses. This process removes duplicate CSV entries by overwriting
-            # the date with the newest value.
-            try:
-                log[line['name']]
-            except KeyError:
-                log[line['name']] = {}
-            name = line['name']
-            date = line['date']
-            status = line['status']
-            log[name][date] = status
+    for line in csv.DictReader(log_file):
+        # Creates a 'log' dictionary, inside of each entry is another dictionary with dates and
+        # a corresponding statuses. This process removes duplicate CSV entries by overwriting
+        # the date with the newest value.
+        try:
+            log[line['name']]
+        except KeyError:
+            log[line['name']] = {}
+        name = line['name']
+        date = line['date']
+        status = line['status']
+        log[name][date] = status
     return log
 
 def dump_log_to_file(log, log_file):
@@ -83,11 +83,12 @@ def dump_log_to_file(log, log_file):
                     'name': habit,
                     'status': status
             })
-    with open(log_file, 'w', encoding='utf-8') as file:
-        writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
-        writer.writeheader()
-        for line in dump:
-            writer.writerow(line)
+    writer = init_writer(log_file)
+    for line in dump:
+        writer.writerow(line)
+
+def init_writer(log_file):
+    return csv.DictWriter(log_file, fieldnames=['date', 'name', 'status'])
 
 def is_due(habit, log, selected_date):
     due = True
@@ -200,7 +201,7 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
 
     def save_quit():
         save()
-        sys.exit(1)
+        sys.exit()
 
     def notify(msg):
         nonlocal help_hold
@@ -350,39 +351,42 @@ def curses_tui(window, habits, log, log_file, days_back, days_forward):
             pass
 
 def main(habits_file, log_file, days_back, days_forward):
+    if os.stat(log_file.name).st_size == 0:
+        writer = init_writer(log_file)
+        writer.writeheader()
+
     days_back = -abs(days_back)
-    if not habits_file:
-        try:
-            habits_file = os.environ['XDG_CONFIG_HOME'] + '/microhabits/habits.yml'
-        except KeyError:
-            habits_file = os.environ['HOME'] + '/.config/microhabits/habits.yml'
-
-    if not log_file:
-        try:
-            log_file = os.environ['XDG_DATA_HOME'] + '/microhabits/log.csv'
-        except KeyError:
-            log_file = os.environ['HOME'] + '/.config/microhabits/log.csv'
-
-    for path in [habits_file, log_file]:
-        parents = os.path.dirname(path)
-        if parents:
-            os.makedirs(parents, exist_ok=True)
 
     habits = load_habits_from_file(habits_file)
     log = load_log_from_file(log_file)
     curses.wrapper(curses_tui, habits, log, log_file, days_back, days_forward)
 
+
+
+
 if __name__ == '__main__':
     import argparse
 
+    try:
+        habits_file = os.environ['XDG_CONFIG_HOME'] + '/microhabits/habits.yml'
+    except KeyError:
+        habits_file = os.environ['HOME'] + '/.config/microhabits/habits.yml'
+    try:
+        log_file = os.environ['XDG_DATA_HOME'] + '/microhabits/log.csv'
+    except KeyError:
+        log_file = os.environ['HOME'] + '/.config/microhabits/log.csv'
+
+    for path in [habits_file, log_file]:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+
     parser = argparse.ArgumentParser(description='Minimalistic habit tracker')
-    parser.add_argument('-f', '--file', dest='habits_file', metavar='FILE',
-            help='Habits file in YAML format')
-    parser.add_argument('-l', '--log_file', metavar='FILE',
-            help='File to log activity to')
-    parser.add_argument('-b', '--days_back', default=3, type=int, metavar='DAYS',
+    parser.add_argument('-f', '--file', dest='habits_file', type=argparse.FileType('r', encoding='utf-8'), metavar='FILE', default=habits_file,
+            help='Habits file in YAML format (default: %(default)s)')
+    parser.add_argument('-l', '--log', dest='log_file', type=argparse.FileType('r+', encoding='utf-8'), metavar='FILE', default=log_file,
+            help='File to log activity to (default: %(default)s)')
+    parser.add_argument('-b', '--days-back', default=3, type=int, metavar='DAYS',
             help='Days before the selected date to display (default: %(default)s)')
-    parser.add_argument('-w', '--days_forward', default=1, type=int, metavar='DAYS',
+    parser.add_argument('-w', '--days-forward', default=1, type=int, metavar='DAYS',
             help='Days after the selected date to display (default: %(default)s)')
     args = parser.parse_args()
     main(args.habits_file, args.log_file, args.days_back, args.days_forward)

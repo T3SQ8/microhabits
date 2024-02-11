@@ -5,6 +5,6 @@ install:
 	cp -f habits.py $(DESTDIR)$(PREFIX)/bin/habits
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/st
+	rm -f $(DESTDIR)$(PREFIX)/bin/habits
 
 .PHONY: install uninstall
