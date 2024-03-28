@@ -1,392 +1,370 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 
 # TODO Lock file
 # TODO "S" to mark all tasks as skipped
-# TODO curses class
-# TODO cut off habit names with addnstr???
-# TODO break instead of sys.exit()
-# TODO (help_hold = False) to remove quit message immediately
-# TODO add explanatory comments
-# TODO module docstrings
-# TODO Press n to skip to next undone habit
+# TODO Press "?" to show all key binds
 
-# TODO Press "?" to all key binds
-# TODO Subtasks
-# TODO INI configs
-# TODO Measurable habits
-# TODO Option change mark character
-# TODO Manpage
-# TODO Visual plot/graph
-
-import sys
 import os
 from datetime import datetime, timedelta
 import csv
+from bisect import bisect
 import curses
-import re
 import yaml
+import dateutil.parser
 
-HEADER_HEIGHT = 2
-MESSAGE_HEIGHT = 1
 
 YAML_EXAMPLE_DATA = """
-habits:
-    - name: Exercise
-      frequency: ['Monday', 'Wednesday', 'Saturday'] # Specific days of the week
+- name: Exercise
+  frequency: ['Monday', 'Wednesday', 'Saturday'] # Specific days of the week
 
-    - name: Clean House
-      frequency: 3 # Every 3 days
+- name: Clean House
+  frequency: 3 # Every 3 days
 
-    - name: Backup
-      frequency: ['1st', '15th'] # Every 1st and 15th of every month
+- name: Backup
+  frequency: ['1st', '15th'] # Every 1st and 15th of every month
 
-    - name: Take a long walk on the beach # Example of long name
-      # Default frequency daily
+- name: Take a long walk on the beach # Example of long name
+  # Default frequency daily
 
-    - name: Play videogames # Habits that don't need to be done but are tracked
-      frequency: 0
+- name: Play videogames # Habits that don't need to be done but are tracked
+  frequency: 0
 """
 
-HABIT_NAME_CUTOFF = 25
-DATE_PADDING = 14
+class Habits:
+    def __init__(self, habits_file, log_file):
+        self.habits_file = habits_file
+        self.log_file = log_file
+        self.status_comp = ['y']
+        self.status_skip = ['s']
+        self.status_fail = [None]
+        self.status_all = self.status_comp + self.status_skip + self.status_fail
 
-def load_habits_from_file(habits_file):
-    habits = yaml.safe_load(habits_file)['habits']
-    for habit in habits: # Default frequency daily
-        if not 'frequency' in habit:
-            habit['frequency'] = 1
+        self.habits = None
+        self.log = {}
 
-    return habits
+    def load_habits_from_file(self):
+        if not os.path.isfile(self.habits_file):
+            with open(self.habits_file, 'w', encoding='utf-8') as f:
+                f.write(YAML_EXAMPLE_DATA)
+        with open(self.habits_file, 'r', encoding='utf-8') as f:
+            habits = yaml.safe_load(f)
+        self.habits = {}
+        for habit in habits:
+            name = habit['name']
+            frequency = habit.get('frequency', 1)
+            self.habits.setdefault(name, {})
+            self.habits[name]['frequency'] = frequency
 
-def load_log_from_file(log_file):
-    log = {}
-    for line in csv.DictReader(log_file):
-        # Creates a 'log' dictionary, inside of each entry is another dictionary with dates and
-        # a corresponding statuses. This process removes duplicate CSV entries by overwriting
-        # the date with the newest value.
-        try:
-            log[line['name']]
-        except KeyError:
-            log[line['name']] = {}
-        name = line['name']
-        date = line['date']
-        status = line['status']
-        log[name][date] = status
-    return log
+    def load_log_file(self):
+        if not os.path.isfile(self.log_file):
+            self.save_log_file()
+        with open(self.log_file, 'r+', encoding='utf-8') as f:
+            for entry in csv.DictReader(f):
+                # Creates a dictionary where each item contains another dictionary with dates
+                # and a corresponding status. This process removes duplicate CSV entries by
+                # overwriting the date's status with the latest value.
+                # {'habit1': {2024-01-01: 'y', 2024-01-02: 's', ...},
+                #  'habit2': {2024-01-01: 'y', 2024-01-02: 'y', ...}}
+                name = entry['name']
+                date = self.iso_to_dt(entry['date'])
+                status = entry['status']
+                self.log.setdefault(name, {})
+                self.log[name][date] = status
 
-def dump_log_to_file(log, log_file):
-    dump = []
-    for habit, dates in log.items():
-        for date, status in dates.items():
-            dump.append({
-                    'date': date,
-                    'name': habit,
-                    'status': status
-            })
-    writer = init_writer(log_file)
-    for line in dump:
-        writer.writerow(line)
+    def save_log_file(self):
+        with open(self.log_file, 'w+', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['date', 'name', 'status'])
+            writer.writeheader()
+            for habit, dates in self.log.items():
+                for date, status in dates.items():
+                    if status:
+                        writer.writerow({
+                            'date': self.dt_to_iso(date),
+                            'name': habit,
+                            'status': status
+                        })
 
-def init_writer(log_file):
-    return csv.DictWriter(log_file, fieldnames=['date', 'name', 'status'])
+    def pretty_print_log(self):
+        print(yaml.dump(self.log)) # using yaml despite original data being csv
 
-def is_due(habit, log, selected_date):
-    due = True
-    frequency = habit['frequency']
-    name = habit['name']
+    def is_due(self, name, date):
+        due = True
+        frequency = self.habits[name]['frequency']
+        log_entries = self.log.get(name, {})
+        status_chosen_date = log_entries.get(date)
 
-    try:
-        if log[name][selected_date] in ['y', 's']:
+        if frequency == 0:
             due = False
-    except KeyError:
-        pass
-
-    selected_date = datetime.strptime(selected_date, "%Y-%m-%d")
-
-    if due:
-        match frequency:
-            case int():
-                if frequency == 0:
+        elif status_chosen_date in self.status_comp:
+            due = False
+        elif isinstance(frequency, int):
+            completed_dates = [date for date, status in log_entries.items() if status == "y"]
+            last_done = bisect(completed_dates, date) - 1
+            if last_done >= 0:
+                last_done = abs((date - completed_dates[last_done]).days)
+                if last_done < frequency:
                     due = False
-                try:
-                    for status_date in sorted(log[name]):
-                        status = log[name][status_date]
-                        if status == 'y':
-                            tmp_last_done = datetime.strptime(status_date, "%Y-%m-%d")
-                            if tmp_last_done.date() < selected_date.date():
-                                last_done = tmp_last_done
-                except KeyError:
-                    pass
-                if 'last_done' in locals():
-                    delta = selected_date - last_done
-                    if 0 <= delta.days < frequency:
-                        due = False
-            case list():
-                try:
-                    frequency = [
-                            re.search(r'(\d{1,2})[a-zA-Z]{2}',
-                                item).group(1) for item in frequency
-                            ]
-                    selected_date = selected_date.strftime('%-d') # non-padded day of month
-                    if not selected_date in frequency:
-                        due = False
-                except AttributeError:
-                    frequency = [ item.capitalize() for item in frequency ]
-                    selected_date = selected_date.strftime('%A') # Day of week
-                    if not selected_date.capitalize() in frequency:
-                        due = False
-    return due
+        elif isinstance(frequency, list):
+            cond_month_day = []
+            cond_week_day = []
+            for cond in frequency:
+                if any(c.isdigit() for c in cond):
+                    day = dateutil.parser.parse(cond).day
+                    cond_month_day.append(day)
+                else:
+                    day = dateutil.parser.parse(cond).weekday()
+                    cond_week_day.append(day)
+            if date.day in cond_month_day:
+                due = True
+            elif not date.weekday() in cond_week_day:
+                due = False
+        return due
 
-def screen_date_format(dt):
-    return dt.strftime('%d/%m (%a)')
+    def toggle_status(self, name, date):
+        log = self.log.setdefault(name, {})
+        status = log.get(date)
+        i = self.status_all.index(status)
+        i = (i + 1) % len(self.status_all)
+        status = self.status_all[i]
+        self.log[name][date] = status
 
-def iso_date_format(dt):
-    return dt.strftime('%Y-%m-%d')
+    def dt_to_iso(self, dt):
+        return dt.strftime('%Y-%m-%d')
 
-def curses_tui(window, habits, log, log_file, days_back, days_forward):
-    def move(direction, dist=1):
-        nonlocal current_row
-        nonlocal selected_date
-        nonlocal scroll
+    def iso_to_dt(self, date):
+        return datetime.strptime(date, "%Y-%m-%d")
+
+
+
+class CursesTui:
+    def __init__(self, habits):
+        self.habits = habits
+        self.today = datetime.today()
+        self.today = self.today.replace(hour=0, minute=0, second=0, microsecond=0)
+        self.selected_date = self.today
+        self.selected_habit_nr = 0
+        self.curses_loop = True
+        self.hide_completed = False
+        self.scroll = 0
+
+        self.y_max = 0
+        self.x_max = 0
+        self.window = None
+        self.days_back = 3
+        self.days_forward = 1
+        self.name_cutoff = 25
+        self.cutoff_char = '…'
+        self.date_padding = 14
+        self.header_height = 2
+        self.message_height = 1
+
+        self.header_pad = None
+        self.message_pad = None
+        self.habits_pad = None
+
+        self.keys_main = {
+                curses.KEY_UP:    (self.move, ['up']),
+                curses.KEY_DOWN:  (self.move, ['down']),
+                curses.KEY_LEFT:  (self.move, ['left']),
+                curses.KEY_RIGHT: (self.move, ['right']),
+                curses.KEY_ENTER: (self.toggle_status, []),
+                ord('q'):         (self.save_quit, []),
+                }
+
+        self.keys_misc = {
+                ord('k'):  (self.move, ['up']),
+                ord('j'):  (self.move, ['down']),
+                ord('h'):  (self.move, ['left']),
+                ord('l'):  (self.move, ['right']),
+                ord('s'):  (self.save, []),
+                ord('Q'):  (self.force_exit, []),
+                ord('t'):  (self.move, ['today']),
+                ord('g'):  (self.move, ['top']),
+                ord('G'):  (self.move, ['bottom']),
+                ord('H'):  (self.toggle_hide, []),
+                ord('\n'): (self.toggle_status, []),
+                ord('\r'): (self.toggle_status, []),
+                ord(' '):  (self.toggle_status, []),
+                }
+
+        self.keys_internal = {
+                curses.KEY_RESIZE: (self.resize, []),
+                }
+
+        self.keys_all = self.keys_main | self.keys_misc | self.keys_internal
+
+    def move(self, direction, dist=1):
         match direction:
             case 'up':
-                if current_row > 0:
-                    current_row -= dist
-                if current_row < scroll:
-                    scroll -= 1
+                if (line := self.selected_habit_nr - dist) >= 0:
+                    self.selected_habit_nr = line
             case 'down':
-                if current_row < len(habits) - 1:
-                    current_row += dist
-                if current_row > y_max - HEADER_HEIGHT - MESSAGE_HEIGHT + scroll:
-                    scroll += 1
-            case 'left':
-                selected_date -= timedelta(days=dist)
+                if (line := self.selected_habit_nr + dist) < len(self.habits.habits):
+                    self.selected_habit_nr = line
             case 'right':
-                selected_date += timedelta(days=dist)
-            case 'today':
-                selected_date = today
+                self.selected_date += timedelta(days=dist)
+            case 'left':
+                self.selected_date -= timedelta(days=dist)
             case 'top':
-                current_row = 0
-                scroll = 0
+                self.selected_habit_nr = 0
             case 'bottom':
-                current_row = len(habits)-1
-                scroll = len(habits) - y_max + HEADER_HEIGHT
+                self.selected_habit_nr = len(self.habits.habits)-1
+            case 'today':
+                self.selected_date = self.today
+        # TODO find a better way to scroll
+        s = self.selected_habit_nr - self.y_max + self.header_height + self.message_height
+        self.scroll = max(0, s)
 
-    def toggle_status():
-        nonlocal habits
-        nonlocal selected_date
-        habit_name = habits[current_row]['name']
-        date = iso_date_format(selected_date)
-        if not habit_name in log:
-            log[habit_name] = {}
-        if not date in log[habit_name]:
-            log[habit_name][date] = {}
-        match log[habit_name][date]:
-            case 'y':
-                log[habit_name][date] = 's'
-            case 's':
-                del log[habit_name][date]
-            case _:
-                log[habit_name][date] = 'y'
+    def screen_date_format(self, dt):
+        return dt.strftime('%d/%m (%a)')
 
-    def force_exit():
-        notify('Do you want to quit without saving? [N/y]')
-        key = window.getch()
+    def toggle_status(self):
+        name = list(self.habits.habits.keys())[self.selected_habit_nr]
+        date = self.selected_date
+        self.habits.toggle_status(name, date)
+
+    def force_exit(self):
+        self.notify('Do you want to quit without saving? [y/N]')
+        self.refresh()
+        key = self.window.getch()
         if key == ord('y') or key == ord('Y'):
-            sys.exit(1)
+            self.curses_loop = False
 
-    def save():
-        dump_log_to_file(log, log_file)
-        notify(f'Saved to {log_file}')
+    def save(self):
+        self.habits.save_log_file()
+        self.notify(f'Saved to {self.habits.log_file}')
 
-    def save_quit():
-        save()
-        sys.exit()
+    def save_quit(self):
+        self.save()
+        self.curses_loop = False
 
-    def notify(msg):
-        nonlocal help_hold
-        nonlocal message_pad
-        msg = msg.ljust(x_max)[:x_max-1] # Pad and crop to cover older messages
-        message_pad.addstr(0, 0, msg)
-        help_hold = True
+    def notify(self, msg=''):
+        msg = msg.ljust(self.x_max)[:self.x_max-1] # Pad and crop to cover older messages
+        self.message_pad.addstr(0, 0, msg)
 
-    def toggle_hide():
-        nonlocal hide_completed
-        hide_completed = not hide_completed
+    def toggle_hide(self):
+        self.hide_completed = not self.hide_completed
 
-    def resize():
-        nonlocal y_max
-        nonlocal x_max
-        nonlocal header_pad
-        nonlocal message_pad
-        nonlocal habits_pad
-        y_max, x_max = window.getmaxyx()
-        y_max -= 1
-        x_max -= 1
-        window.clear()
+    def resize(self):
+        self.y_max, self.x_max = self.window.getmaxyx()
+        self.y_max -= 1
+        self.x_max -= 1
 
-    # Dictionary key is the key pressed on the keyboard. The tuple contains the function to be
-    # executed in the loop later on when the key is pressed along with its arguments.
-    keys_main = {
-            curses.KEY_UP:    (move, ['up']),
-            curses.KEY_DOWN:  (move, ['down']),
-            curses.KEY_LEFT:  (move, ['left']),
-            curses.KEY_RIGHT: (move, ['right']),
-            curses.KEY_ENTER: (toggle_status, []),
-            ord('q'):         (save_quit, []),
-            }
+    def refresh(self):
+        self.header_pad.refresh(0,0,  0,0,  self.header_height,self.x_max)
+        self.habits_pad.refresh(self.scroll,0,  self.header_height,0,
+                                self.y_max-self.message_height,self.x_max)
+        self.message_pad.refresh(0,0,  self.y_max,0,  self.y_max,self.x_max)
 
-    # Key binds not shown at the bottom at the bottom of the screen
-    keys_misc = {
-            ord('k'):  (move, ['up']),
-            ord('j'):  (move, ['down']),
-            ord('h'):  (move, ['left']),
-            ord('l'):  (move, ['right']),
-            ord('s'):  (save, []),
-            ord('Q'):  (force_exit, []),
-            ord('t'):  (move, ['today']),
-            ord('g'):  (move, ['top']),
-            ord('G'):  (move, ['bottom']),
-            ord('H'):  (toggle_hide, []),
-            ord('\n'): (toggle_status, []),
-            ord('\r'): (toggle_status, []),
-            ord(' '):  (toggle_status, []),
-            }
+    def run(self, window):
+        self.window = window
+        self.resize()
+        self.header_pad = curses.newpad(self.header_height, 1000)
+        self.message_pad = curses.newpad(self.message_height, 1000)
+        self.habits_pad = curses.newpad(len(self.habits.habits), 1000)
+        curses.curs_set(0)
+        window.refresh()
 
-    keys_internal = {
-            curses.KEY_RESIZE: (resize, []),
-            }
+        while self.curses_loop:
+            self.header_pad.addstr(0, self.name_cutoff + self.date_padding *
+                                   abs(self.days_back), '-' * self.date_padding)
 
-    help_message = 'keys: '
-    for key, action in keys_main.items():
-        func = action[0].__name__.replace('_', ' ')
-        action = ' '.join(action[1])
-        separator = ' '*3
-        match key:
-            case 259:
-                key = 'UP'
-            case 258:
-                key = 'DOWN'
-            case 260:
-                key = 'LEFT'
-            case 261:
-                key = 'RIGHT'
-            case 343:
-                key = 'RETURN'
-            case _:
-                key = chr(key)
-        help_message += f'{key}:{func} {action}' + separator
+            date_range = []
+            for delta in range(-abs(self.days_back), self.days_forward + 1):
+                date_range.append(self.selected_date + timedelta(days=delta))
 
-    today = datetime.today()
-    selected_date = today
-    y_max = 0
-    x_max = 0
-    current_row = 0
-    help_hold = False
-    hide_completed = False
-    curses.curs_set(0)
-    scroll = 0
 
-    resize()
-    header_pad = curses.newpad(HEADER_HEIGHT, 1000)
-    message_pad = curses.newpad(MESSAGE_HEIGHT, 1000)
-    habits_pad = curses.newpad(len(habits), 1000)
+            for i,date in enumerate(date_range):
+                attrb = curses.A_BOLD if date == self.today else curses.A_NORMAL
+                date = self.screen_date_format(date)
+                self.header_pad.addstr(1, self.name_cutoff + self.date_padding*i, date, attrb)
 
-    notify(help_message)
-
-    while True:
-        if help_hold: # To prevent other messages from being overwritten by the help message
-            help_hold = False
-        else:
-            notify(help_message)
-
-        header_pad.addstr(0, HABIT_NAME_CUTOFF + DATE_PADDING * abs(days_back), '-' * DATE_PADDING)
-        i = 0
-        for delta in range(days_back, days_forward + 1):
-            screen_date = selected_date + timedelta(days=delta)
-            attrb = curses.A_BOLD if screen_date == today else curses.A_NORMAL
-            screen_date = screen_date_format(screen_date)
-            header_pad.addstr(1, HABIT_NAME_CUTOFF + DATE_PADDING*i, screen_date, attrb)
-            i += 1
-
-        for idy, habit in enumerate(habits):
-            attrb = curses.A_BOLD
-            i = 0
-            for delta in range(days_back, days_forward + 1):
-                if len(habit['name']) > HABIT_NAME_CUTOFF - 2:
-                    name = habit['name'][:HABIT_NAME_CUTOFF - 2]+'>'
-                else:
-                    name = habit['name']
-                habits_pad.addstr(idy, 0, name)
-                screen_date = selected_date + timedelta(days=delta)
-                screen_date = iso_date_format(screen_date)
-                try:
-                    text = f'[{log[habit["name"]][screen_date]}]'
-                except KeyError:
-                    if is_due(habit, log, screen_date):
+            for row, habit in enumerate(self.habits.habits):
+                attrb = curses.A_BOLD
+                for i,date in enumerate(date_range):
+                    name = habit
+                    due = self.habits.is_due(name, date)
+                    status = self.habits.log.get(name)
+                    if status:
+                        status = status.get(date)
+                    if len(name) > self.name_cutoff - 2:
+                        name = name[:self.name_cutoff - 2] + self.cutoff_char
+                    self.habits_pad.addstr(row, 0, name)
+                    if status:
+                        text = f'[{status}]'
+                    elif due:
                         text = '[ ]'
                     else:
                         text = '[o]'
-                if hide_completed and not is_due(habit, log, iso_date_format(selected_date)):
-                    attrb = curses.A_DIM
-                habits_pad.addstr(idy, HABIT_NAME_CUTOFF + DATE_PADDING*i, text)
-                i += 1
-            habits_pad.chgat(idy, 0, attrb)
+                    if self.hide_completed and not due and date == self.selected_date:
+                        attrb = curses.A_DIM
+                    self.habits_pad.addstr(row, self.name_cutoff + self.date_padding*i, text)
+                self.habits_pad.chgat(row, 0, attrb)
 
-        habits_pad.move(current_row, 0)
-        attrb = curses.A_STANDOUT
-        if bool(habits_pad.inch(current_row, 0) & curses.A_BOLD):
-            attrb = attrb | curses.A_BOLD
-        habits_pad.chgat(current_row, 0, attrb)
+            self.habits_pad.move(self.selected_habit_nr, 0)
+            attrb = curses.A_STANDOUT
+            if bool(self.habits_pad.inch(self.selected_habit_nr, 0) & curses.A_BOLD):
+                attrb = attrb | curses.A_BOLD
+            self.habits_pad.chgat(self.selected_habit_nr, 0, attrb)
 
-        window.refresh()
-        header_pad.refresh(0,0,  0,0,             HEADER_HEIGHT,x_max)
-        habits_pad.refresh(scroll,0,  HEADER_HEIGHT,0, y_max-MESSAGE_HEIGHT,x_max)
-        message_pad.refresh(0,0, y_max,0,         y_max,x_max)
+            self.refresh()
+            self.notify()
 
-        try:
-            func, parms = (keys_main | keys_misc | keys_internal)[window.getch()]
-            func(*parms)
-        except KeyError:
-            pass
-
-def main(habits_file, log_file, days_back, days_forward):
-    if os.stat(log_file.name).st_size == 0:
-        writer = init_writer(log_file)
-        writer.writeheader()
-
-    days_back = -abs(days_back)
-
-    habits = load_habits_from_file(habits_file)
-    log = load_log_from_file(log_file)
-    curses.wrapper(curses_tui, habits, log, log_file, days_back, days_forward)
+            p = self.keys_all.get(window.getch())
+            if p:
+                func, parms = p
+                func(*parms)
 
 
 
+def launch_habit_tracker(a):
+    for i in [a.file, a.log]:
+        if (dir := os.path.dirname(i)) :
+            os.makedirs(dir, exist_ok=True)
+    habits = Habits(a.file, a.log)
+    habits.load_habits_from_file()
+    habits.load_log_file()
+    tui = CursesTui(habits)
+    tui.days_back = a.days_back
+    tui.days_forward = a.days_forward
+    curses.wrapper(tui.run)
+
+
+def rename_in_logfile():
+    pass # TODO function to rename in logfile
 
 if __name__ == '__main__':
     import argparse
 
-    try:
-        habits_file = os.environ['XDG_CONFIG_HOME'] + '/microhabits/habits.yml'
-    except KeyError:
-        habits_file = os.environ['HOME'] + '/.config/microhabits/habits.yml'
-    try:
-        log_file = os.environ['XDG_DATA_HOME'] + '/microhabits/log.csv'
-    except KeyError:
-        log_file = os.environ['HOME'] + '/.config/microhabits/log.csv'
+    default_habits_file = os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config')
+    default_habits_file += '/microhabits/habits.yml'
+    default_log_file = os.environ.get('XDG_DATA_HOME') or os.path.expanduser('~/.local/share')
+    default_log_file += '/microhabits/log.csv'
 
-    for path in [habits_file, log_file]:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+    parser = argparse.ArgumentParser(description='minimalistic habit tracker')
+    subparsers = parser.add_subparsers()
 
-    parser = argparse.ArgumentParser(description='Minimalistic habit tracker')
-    parser.add_argument('-f', '--file', dest='habits_file', type=argparse.FileType('r', encoding='utf-8'), metavar='FILE', default=habits_file,
-            help='Habits file in YAML format (default: %(default)s)')
-    parser.add_argument('-l', '--log', dest='log_file', type=argparse.FileType('r+', encoding='utf-8'), metavar='FILE', default=log_file,
-            help='File to log activity to (default: %(default)s)')
-    parser.add_argument('-b', '--days-back', default=3, type=int, metavar='DAYS',
-            help='Days before the selected date to display (default: %(default)s)')
-    parser.add_argument('-w', '--days-forward', default=1, type=int, metavar='DAYS',
-            help='Days after the selected date to display (default: %(default)s)')
+    habit_tracker = subparsers.add_parser('habits', help='Track habits')
+    habit_tracker.set_defaults(func=launch_habit_tracker)
+    habit_tracker.add_argument('-f', '--file', metavar='FILE',
+                               default=default_habits_file,
+                               help='habits file in YAML format (default: %(default)s)')
+    habit_tracker.add_argument('-l', '--log', metavar='FILE', default=default_log_file,
+            help='file to log activity to (default: %(default)s)')
+    habit_tracker.add_argument('-b', '--days-back', default=3, type=int, metavar='DAYS',
+            help='days before the selected date to display (default: %(default)s)')
+    habit_tracker.add_argument('-w', '--days-forward', default=1, type=int, metavar='DAYS',
+            help='days after the selected date to display (default: %(default)s)')
+
+    habit_rename = subparsers.add_parser('rename', help='Rename habit in log file')
+    habit_rename.set_defaults(func=rename_in_logfile)
+    habit_rename.add_argument('habit_name', metavar='NAME',
+                              help='old habit name to be replaced')
+    habit_rename.add_argument('habit_name_new', metavar='STRING',
+                              help='new habit name')
+    habit_rename.add_argument('-l', '--log', metavar='FILE', default=default_log_file,
+                              help='log file (default: %(default)s)')
+
     args = parser.parse_args()
-    main(args.habits_file, args.log_file, args.days_back, args.days_forward)
+    args.func(args)
