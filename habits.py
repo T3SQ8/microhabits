@@ -2,7 +2,6 @@
 
 
 # TODO Lock file
-# TODO "S" to mark all tasks as skipped
 # TODO Press "?" to show all key binds
 
 import os
@@ -178,6 +177,7 @@ class CursesTui:
                 ord('h'):  (self.move, ['left']),
                 ord('l'):  (self.move, ['right']),
                 ord('s'):  (self.save, []),
+                ord('S'):  (self.toggle_all, []),
                 ord('Q'):  (self.force_exit, []),
                 ord('t'):  (self.move, ['today']),
                 ord('g'):  (self.move, ['top']),
@@ -223,6 +223,10 @@ class CursesTui:
         name = list(self.habits.habits.keys())[self.selected_habit_nr]
         date = self.selected_date
         self.habits.toggle_status(name, date)
+
+    def toggle_all(self):
+        for name in list(self.habits.habits.keys()):
+            self.habits.toggle_status(name, self.selected_date)
 
     def force_exit(self):
         self.notify('Do you want to quit without saving? [y/N]')
