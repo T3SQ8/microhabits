@@ -347,7 +347,7 @@ if __name__ == '__main__':
     default_log_file += '/microhabits/log.csv'
 
     parser = argparse.ArgumentParser(description='minimalistic habit tracker')
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(required=True)
 
     habit_tracker = subparsers.add_parser('habits', help='Track habits')
     habit_tracker.set_defaults(func=launch_habit_tracker)
