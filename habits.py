@@ -95,7 +95,7 @@ class Habits:
 
         if frequency == 0:
             due = False
-        elif status_chosen_date in self.status_comp:
+        elif status_chosen_date in self.status_comp + self.status_skip:
             due = False
         elif isinstance(frequency, int):
             completed_dates = [date for date, status in log_entries.items() if status == "y"]
