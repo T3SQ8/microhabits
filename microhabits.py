@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# TODO Lock file
-# TODO Press "?" to show all key binds
 
 import yaml
 import csv
