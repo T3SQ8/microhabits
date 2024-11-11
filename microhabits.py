@@ -6,6 +6,7 @@ import csv
 import datetime
 from bisect import bisect
 from dateutil.parser import parse as dateparse
+from typing import TextIO, Dict, Optional, Union, List
 import curses
 
 STATUS_COMPLETED = ['y']
@@ -22,12 +23,12 @@ PRETTY_DATE_FORMAT = '%d/%m (%a)'
 
 
 class Habit:
-    def __init__(self, name, frequency):
+    def __init__(self, name: str, frequency: Union[List[str], int]):
         self.name = name
         self.frequency = frequency
         self.statuses = {}
 
-    def set_status(self, date: datetime.date, status):
+    def set_status(self, date: datetime.date, status: Optional[str]):
         self.statuses[date] = status
 
     def get_status(self, date: datetime.date):
@@ -68,27 +69,27 @@ class Habit:
         status = STATUS_ALL[i]
         self.set_status(date, status)
 
-
-def load_habits_from_file(file):
-    with open(file, 'r') as f:
-        return {h['name']: Habit(h['name'], h.get('frequency', 1)) for h in yaml.safe_load(f)}
-
-def load_log_from_file(habits, file):
-    try:
-        with open(file, 'r') as f:
-            for entry in csv.DictReader(f):
-                name = entry['name']
-                date = datetime.datetime.strptime(entry['date'], LOG_DATE_FORMAT).date()
-                status = entry['status']
-                if h := habits.get(name):
-                    h.set_status(date, status)
-    except FileNotFoundError:
-        pass
+def load_habits_from_file(habits_file: TextIO) -> Dict[str, Habit]:
+    habits = {}
+    for h in yaml.safe_load(habits_file):
+        name = h['name']
+        frequency = h.get('frequency', 1) # Default frequency
+        habits[name] = Habit(name, frequency)
     return habits
 
-def save_log_to_file(habits, file):
-    with open(file, 'w') as f:
-        writer = csv.DictWriter(f, fieldnames=['date', 'name', 'status'])
+
+def load_log_from_file(habits: Dict[str, Habit], log_file: TextIO) -> Dict[str, Habit]:
+    for entry in csv.DictReader(log_file):
+        name = entry['name']
+        date = datetime.datetime.strptime(entry['date'], LOG_DATE_FORMAT).date()
+        status = entry['status']
+        if h := habits.get(name):
+            h.set_status(date, status)
+    return habits
+
+
+def save_log_to_file(habits: Dict[str, Habit], log_file: TextIO):
+        writer = csv.DictWriter(log_file, fieldnames=['date', 'name', 'status'])
         writer.writeheader()
         for name, habit in habits.items():
             for date, status in habit.statuses.items():
@@ -196,10 +197,19 @@ def run(stdscr, habits):
 
 
 def main(habits_file, log_file):
-    habits = load_habits_from_file(habits_file)
-    habits = load_log_from_file(habits, log_file)
+    with open(habits_file, 'r') as f:
+        habits = load_habits_from_file(f)
+
+    try:
+        with open(log_file, 'r') as f:
+            habits = load_log_from_file(habits, f)
+    except FileNotFoundError:
+        pass
+
     curses.wrapper(lambda stdscr: run(stdscr, habits))
-    save_log_to_file(habits, log_file)
+
+    with open(log_file, 'w') as f:
+        save_log_to_file(habits, f)
 
 
 if __name__ == '__main__':
