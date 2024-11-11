@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 
-import yaml
-import csv
 import datetime
-from bisect import bisect
 from dateutil.parser import parse as dateparse
 from typing import TextIO, Dict, Optional, Union, List
+import csv
+from bisect import bisect
+import yaml
 import curses
 
 STATUS_COMPLETED = ['y']
@@ -34,9 +34,15 @@ class Habit:
     def get_status(self, date: datetime.date):
         return self.statuses.get(date)
 
+    def toggle_status(self, date: datetime.date):
+        status = self.get_status(date)
+        i = STATUS_ALL.index(status)
+        i = (i + 1) % len(STATUS_ALL)
+        status = STATUS_ALL[i]
+        self.set_status(date, status)
+
     def is_due(self, date: datetime.date):
         due = True
-
         if self.get_status(date) in STATUS_COMPLETED + STATUS_SKIPPED:
             due = False
         elif self.frequency == 0:
@@ -59,15 +65,8 @@ class Habit:
                     cond_week_day.append(dateparse(cond).weekday())
             if (date.day not in cond_month_day) and (date.weekday() not in cond_week_day):
                 due = False
-
         return due
 
-    def toggle_status(self, date: datetime.date):
-        status = self.get_status(date)
-        i = STATUS_ALL.index(status)
-        i = (i + 1) % len(STATUS_ALL)
-        status = STATUS_ALL[i]
-        self.set_status(date, status)
 
 def load_habits_from_file(habits_file: TextIO) -> Dict[str, Habit]:
     habits = {}
