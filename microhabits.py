@@ -17,6 +17,9 @@ STATUS_ALL = STATUS_FAILED + STATUS_COMPLETED + STATUS_SKIPPED
 NAME_CUTOFF = 25
 NAME_CUTOFF_CHAR = '…'
 DATE_PADDING = 14
+DAYS_BACK = 1
+DAYS_FORWARD = 1
+HEADER_HEIGHT = 2
 
 LOG_DATE_FORMAT = '%Y-%m-%d'
 PRETTY_DATE_FORMAT = '%d/%m (%a)'
@@ -110,13 +113,9 @@ def save_log_to_file(habits: Dict[str, Habit], log_file: TextIO):
 
 
 def run(stdscr, habits):
-    days_back = 1
-    days_forward = 1
-    header_height = 2
     today = datetime.date.today()
     selected_date = today
     selected_habit_nr = 0
-    assert days_back >= 0 and days_forward >= 0
 
     tui_habits = []
     for name, habit in habits.items():
@@ -125,20 +124,19 @@ def run(stdscr, habits):
 
     curses_loop = True
     hide_completed = False
-    header_pad = curses.newpad(header_height, 1000)
+    header_pad = curses.newpad(HEADER_HEIGHT, 1000)
     habits_pad = curses.newpad(len(tui_habits), 1000)
 
-    stdscr.refresh()
+    stdscr.refresh() # needed so everything displays at program start without a keypress
 
     while curses_loop:
         # The marker for the selected date
-        header_pad.addstr(0, NAME_CUTOFF + DATE_PADDING*days_back, '-'*DATE_PADDING)
-
+        header_pad.addstr(0, NAME_CUTOFF + DATE_PADDING*DAYS_BACK, '-'*DATE_PADDING)
 
         # Show selected date and the chosed number of days before/after
         date_range = [
             selected_date + datetime.timedelta(days=delta)
-            for delta in range(-days_back, days_forward+1)
+            for delta in range(-DAYS_BACK, DAYS_FORWARD+1)
         ]
         for i,date in enumerate(date_range):
             attrb = curses.A_BOLD if date == today else curses.A_NORMAL
@@ -164,7 +162,6 @@ def run(stdscr, habits):
                 habits_pad.addstr(row, NAME_CUTOFF + DATE_PADDING*i, text)
             habits_pad.chgat(row, 0, attrb)
 
-        #habits_pad.move(self.selected_habit_nr, 0)
         attrb = curses.A_STANDOUT
         if bool(habits_pad.inch(selected_habit_nr, 0) & curses.A_BOLD):
             attrb = attrb | curses.A_BOLD
@@ -173,22 +170,19 @@ def run(stdscr, habits):
 
         # Refresh all pads at once.
         curses.update_lines_cols()
-        y_max, x_max = stdscr.getmaxyx()
-        y_max, x_max = y_max-1, x_max-1
-        header_pad.refresh(0,0, 0,0, header_height,x_max)
-        scroll = max(0, selected_habit_nr - y_max + header_height)
-        habits_pad.refresh(scroll,0, header_height,0, y_max,x_max)
+        y_max, x_max = [p-1 for p in stdscr.getmaxyx()]
+        header_pad.refresh(0,0, 0,0, HEADER_HEIGHT,x_max)
+        scroll = max(0, selected_habit_nr - y_max + HEADER_HEIGHT)
+        habits_pad.refresh(scroll,0, HEADER_HEIGHT,0, y_max,x_max)
 
 
         match key := stdscr.getkey():
             case 'KEY_UP' | 'k':
-                line = selected_habit_nr - 1
-                line = max(0, line)
-                selected_habit_nr = line
+                selected_habit_nr = max(0, selected_habit_nr-1)
             case 'KEY_DOWN' | 'j':
                 selected_habit_nr = min(selected_habit_nr+1, len(tui_habits)-1)
             case 'KEY_LEFT' | 'h':
-                selected_date += datetime.timedelta(days=-1)
+                selected_date -= datetime.timedelta(days=1)
             case 'KEY_RIGHT' | 'l':
                 selected_date += datetime.timedelta(days=1)
             case ' ':
