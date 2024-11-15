@@ -27,12 +27,16 @@ class Habit:
         self.name = name
         self.frequency = frequency
         self.statuses = {}
+        self.hide_from_tui = False
 
     def set_status(self, date: datetime.date, status: Optional[str]):
         self.statuses[date] = status
 
     def get_status(self, date: datetime.date):
         return self.statuses.get(date)
+
+    def get_name(self) -> str:
+        return self.name
 
     def toggle_status(self, date: datetime.date):
         status = self.get_status(date)
@@ -84,6 +88,11 @@ def load_log_from_file(habits: Dict[str, Habit], log_file: TextIO) -> Dict[str, 
         status = entry['status']
         if h := habits.get(name):
             h.set_status(date, status)
+        else:
+            h = Habit(name, 0)
+            h.set_status(date, status)
+            h.hide_from_tui = True
+            habits[name] = h
     return habits
 
 
@@ -109,10 +118,15 @@ def run(stdscr, habits):
     selected_habit_nr = 0
     assert days_back >= 0 and days_forward >= 0
 
+    tui_habits = []
+    for name, habit in habits.items():
+        if not habit.hide_from_tui:
+            tui_habits.append(habit)
+
     curses_loop = True
     hide_completed = False
     header_pad = curses.newpad(header_height, 1000)
-    habits_pad = curses.newpad(len(habits), 1000)
+    habits_pad = curses.newpad(len(tui_habits), 1000)
 
     stdscr.refresh()
 
@@ -133,7 +147,8 @@ def run(stdscr, habits):
 
 
         # Add habits to pad
-        for row, (name, habit) in enumerate(habits.items()):
+        for row, habit in enumerate(tui_habits):
+            name = habit.get_name()
             attrb = curses.A_BOLD
             for i,date in enumerate(date_range):
                 due = habit.is_due(date)
@@ -171,16 +186,13 @@ def run(stdscr, habits):
                 line = max(0, line)
                 selected_habit_nr = line
             case 'KEY_DOWN' | 'j':
-                line = selected_habit_nr + 1
-                line = min(line, len(habits)-1)
-                selected_habit_nr = line
+                selected_habit_nr = min(selected_habit_nr+1, len(tui_habits)-1)
             case 'KEY_LEFT' | 'h':
                 selected_date += datetime.timedelta(days=-1)
             case 'KEY_RIGHT' | 'l':
                 selected_date += datetime.timedelta(days=1)
             case ' ':
-                _, habit = list(habits.items())[selected_habit_nr]
-                habit.toggle_status(selected_date)
+                tui_habits[selected_habit_nr].toggle_status(selected_date)
             case 't':
                 selected_date = today
             case 'q':
@@ -190,7 +202,7 @@ def run(stdscr, habits):
             case 'g':
                 selected_habit_nr = 0
             case 'G':
-                selected_habit_nr = len(habits)-1
+                selected_habit_nr = len(tui_habits)-1
             case _:
                 print(key)
 
