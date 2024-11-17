@@ -20,6 +20,8 @@ class TestStringMethods(unittest.TestCase):
         - name: Habit with no frequency
         - name: Habit with zero frequency
           frequency: 0
+        - name: Habit with associated file
+          file: ~/file.txt
         """))
 
 
@@ -88,6 +90,11 @@ class TestStringMethods(unittest.TestCase):
         # Testing is_due for zero frequency
         self.assertEqual(habits['Habit with zero frequency'].is_due(datetime.date(2024, 1, 15)),
                          False)
+
+
+        # Testing file association
+        self.assertEqual(habits['Habit with associated file'].get_file(), '~/file.txt')
+        self.assertEqual(habits['Habit with zero frequency'].get_file(), None)
 
 
 

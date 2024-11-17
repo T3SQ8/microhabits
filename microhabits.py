@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 
+import os
 import datetime
 from dateutil.parser import parse as dateparse
 from typing import TextIO, Dict, Optional, Union, List
@@ -26,10 +27,11 @@ PRETTY_DATE_FORMAT = '%d/%m (%a)'
 
 
 class Habit:
-    def __init__(self, name: str, frequency: Union[List[str], int]):
+    def __init__(self, name: str, frequency: Union[List[str], int], associated_file: Union[str, None]=None):
         self.name = name
         self.frequency = frequency
         self.statuses = {}
+        self.associated_file = associated_file
         self.hide_from_tui = False
 
     def set_status(self, date: datetime.date, status: Optional[str]):
@@ -40,6 +42,9 @@ class Habit:
 
     def get_name(self) -> str:
         return self.name
+
+    def get_file(self) -> Union[str, None]:
+        return self.associated_file
 
     def toggle_status(self, date: datetime.date):
         status = self.get_status(date)
@@ -80,7 +85,8 @@ def load_habits_from_file(habits_file: TextIO) -> Dict[str, Habit]:
     for h in yaml.safe_load(habits_file):
         name = h['name']
         frequency = h.get('frequency', 1) # Default frequency
-        habits[name] = Habit(name, frequency)
+        file = h.get('file')
+        habits[name] = Habit(name, frequency, file)
     return habits
 
 
@@ -110,6 +116,13 @@ def save_log_to_file(habits: Dict[str, Habit], log_file: TextIO):
                         'name': name,
                         'status': status
                     })
+
+
+def open_in_editor(file_path: str, editor=None):
+    if file_path:
+        import subprocess
+        if not editor: editor = os.getenv('EDITOR', 'vi')
+        subprocess.run([editor, file_path])
 
 
 def run(stdscr, habits):
@@ -147,12 +160,14 @@ def run(stdscr, habits):
         # Add habits to pad
         for row, habit in enumerate(tui_habits):
             name = habit.get_name()
+            if habit.get_file():
+                name = '[f] ' + name
+            if len(name) > (l := NAME_CUTOFF-2):
+                name = name[:l] + NAME_CUTOFF_CHAR
             attrb = curses.A_BOLD
             for i,date in enumerate(date_range):
                 due = habit.is_due(date)
                 status = habit.get_status(date)
-                if len(name) > (l := NAME_CUTOFF-2):
-                    name = name[:l] + NAME_CUTOFF_CHAR
                 habits_pad.addstr(row, 0, name)
                 if status: text = f'[{status}]'
                 elif due:  text = '[ ]'
@@ -197,6 +212,12 @@ def run(stdscr, habits):
                 selected_habit_nr = 0
             case 'G':
                 selected_habit_nr = len(tui_habits)-1
+            case 'E':
+                try:
+                    open_in_editor(tui_habits[selected_habit_nr].get_file())
+                finally:
+                    stdscr.clear()
+                    stdscr.refresh()
             case _:
                 print(key)
 
@@ -218,7 +239,6 @@ def main(habits_file, log_file):
 
 
 if __name__ == '__main__':
-    import os
     from pathlib import Path
     import argparse
 
