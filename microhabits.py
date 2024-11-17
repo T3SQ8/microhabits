@@ -122,6 +122,7 @@ def open_in_editor(file_path: str, editor=None):
     if file_path:
         import subprocess
         if not editor: editor = os.getenv('EDITOR', 'vi')
+        file_path = os.path.expanduser(file_path)
         subprocess.run([editor, file_path])
 
 
