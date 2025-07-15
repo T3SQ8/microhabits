@@ -1,5 +1,7 @@
 A work in progress habit tracker.
 
+Install by running `pipx install .`
+
 # Credits
 
 Inspired by

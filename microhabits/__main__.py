@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import argparse
-import tui
+from .tui import main as tui_main
 
 def main():
     if (xdg_config_home := os.getenv('XDG_CONFIG_HOME')):
@@ -27,7 +27,7 @@ def main():
                                help='file to log activity to (default: %(default)s)')
 
     args = parser.parse_args()
-    tui.main(args.habits_file, args.log_file)
+    tui_main(args.habits_file, args.log_file)
 
 if __name__ == '__main__':
     main()
