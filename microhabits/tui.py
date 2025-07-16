@@ -142,6 +142,8 @@ def open_in_editor(file_path: str, editor=None):
 def run(stdscr, habits):
     today = datetime.date.today()
     selected_date = today
+    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(3, 0):
+        selected_date -= datetime.timedelta(days=1)
     selected_habit_nr = 0
 
     tui_habits = []
