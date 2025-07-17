@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "Minimal habit tracker"
 readme = "README.md"
 requires-python = ">=3.7"
-dependencies = ["pyyaml", "python-dateutil"]
+dependencies = ["pyyaml", "python-dateutil", "filelock"]
 
 [project.scripts]
 microhabits = "microhabits.__main__:main"

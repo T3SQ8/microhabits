@@ -1,7 +1,10 @@
 import argparse
+import sys
 from os import getenv
 from os.path import expanduser
 from pathlib import Path
+
+from filelock import FileLock, Timeout
 
 from .tui import main as tui_main
 
@@ -32,7 +35,14 @@ def main():
     )
 
     args = parser.parse_args()
-    tui_main(args.habits_file, args.log_file)
+
+    lock_file = "/tmp/microhabits.lock"
+    try:
+        with FileLock(lock_file, timeout=0):
+            tui_main(args.habits_file, args.log_file)
+    except Timeout:
+        print("Another instance is already running. Exiting.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
