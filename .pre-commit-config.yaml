@@ -26,3 +26,5 @@ repos:
     rev: 7ac5a4d4f77576df3a00e63f86ca86e0e1780b47  # frozen: v3.3.6
     hooks:
       - id: pylint
+        additional_dependencies:
+          - filelock

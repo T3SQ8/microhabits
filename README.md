@@ -1,6 +1,6 @@
 A work in progress habit tracker.
 
-Install by running `pipx install .`
+Install by running `pipx install .` or `pipx install git+https://git.musse.me/musse/microhabits`.
 
 # Credits
 
