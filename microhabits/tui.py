@@ -9,10 +9,13 @@ from typing import Dict, List, Optional, TextIO, Union
 import yaml
 from dateutil.parser import parse as dateparse
 
-STATUS_COMPLETED = ["y"]
-STATUS_SKIPPED = ["s"]
-STATUS_FAILED = [None]
-STATUS_ALL = STATUS_FAILED + STATUS_COMPLETED + STATUS_SKIPPED
+STATUSES = (None, "COMPLETED", "SKIPPED", "FAILED")
+STATUSES_DISPLAY = {
+    None: " ",
+    "COMPLETED": "y",
+    "SKIPPED": "s",
+    "FAILED": "n",
+}
 
 NAME_CUTOFF = 25
 NAME_CUTOFF_CHAR = "…"
@@ -52,21 +55,18 @@ class Habit:
 
     def toggle_status(self, date: datetime.date):
         status = self.get_status(date)
-        i = STATUS_ALL.index(status)
-        i = (i + 1) % len(STATUS_ALL)
-        status = STATUS_ALL[i]
+        i = STATUSES.index(status)
+        status = STATUSES[(i + 1) % len(STATUSES)]
         self.set_status(date, status)
 
     def is_due(self, date: datetime.date):
         due = True
-        if self.get_status(date) in STATUS_COMPLETED + STATUS_SKIPPED:
+        if self.get_status(date) is not None:
             due = False
         elif self.frequency == 0:
             due = False
         elif isinstance(self.frequency, int):
-            completed_days = [
-                d for d, s in self.statuses.items() if s in STATUS_COMPLETED
-            ]
+            completed_days = [d for d, s in self.statuses.items() if s == "COMPLETED"]
             last_done = (
                 bisect(completed_days, date) - 1
             )  # index of last completed date before date
@@ -120,7 +120,7 @@ def save_log_to_file(habits: Dict[str, Habit], log_file: TextIO):
     writer.writeheader()
     for name, habit in habits.items():
         for date, status in habit.statuses.items():
-            if status in STATUS_COMPLETED + STATUS_SKIPPED:
+            if status is not None:
                 writer.writerow(
                     {
                         "date": date.strftime(LOG_DATE_FORMAT),
@@ -185,7 +185,7 @@ def run(stdscr, habits):
                 status = habit.get_status(date)
                 habits_pad.addstr(row, 0, name)
                 if status:
-                    text = f"[{status}]"
+                    text = f"[{STATUSES_DISPLAY[status]}]"
                 elif due:
                     text = "[ ]"
                 else:
