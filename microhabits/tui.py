@@ -1,15 +1,11 @@
-import csv
 import curses
 import datetime
-import os
-import subprocess
-from bisect import bisect
-from typing import Dict, List, Optional, TextIO, Union
+from datetime import timedelta
 
-import yaml
-from dateutil.parser import parse as dateparse
+from .habit import Habit
+from .habits_collection import HabitsManager
+from .task_functions import open_in_editor
 
-STATUSES = (None, "COMPLETED", "SKIPPED", "FAILED")
 STATUSES_DISPLAY = {
     None: " ",
     "COMPLETED": "y",
@@ -24,231 +20,153 @@ DAYS_BACK = 1
 DAYS_FORWARD = 1
 HEADER_HEIGHT = 2
 
-LOG_DATE_FORMAT = "%Y-%m-%d"
 PRETTY_DATE_FORMAT = "%d/%m (%a)"
 
 
-class Habit:
-    def __init__(
-        self,
-        name: str,
-        frequency: Union[List[str], int],
-        associated_file: Union[str, None] = None,
-    ):
-        self.name = name
-        self.frequency = frequency
-        self.statuses = {}
-        self.associated_file = associated_file
-        self.hide_from_tui = False
+class CursesTui:
+    def __init__(self, habits: HabitsManager) -> None:
+        self.habits_manager: HabitsManager = habits
+        self.hide_completed = False
+        self.selected_habit_nr = 0
+        self.curses_loop = True
 
-    def set_status(self, date: datetime.date, status: Optional[str]):
-        self.statuses[date] = status
+        # ignore habits that only exist in log file, see load_log_from_file()
+        self.tui_habits: list[Habit] = []
+        for habit in self.habits_manager.habits.values():
+            if not habit.hide_from_tui:
+                self.tui_habits.append(habit)
 
-    def get_status(self, date: datetime.date):
-        return self.statuses.get(date)
+        self.today = datetime.date.today()
+        self.selected_habit_nr = 0
 
-    def get_name(self) -> str:
-        return self.name
-
-    def get_file(self) -> Union[str, None]:
-        return self.associated_file
-
-    def toggle_status(self, date: datetime.date):
-        status = self.get_status(date)
-        i = STATUSES.index(status)
-        status = STATUSES[(i + 1) % len(STATUSES)]
-        self.set_status(date, status)
-
-    def is_due(self, date: datetime.date):
-        due = True
-        if self.get_status(date) is not None:
-            due = False
-        elif self.frequency == 0:
-            due = False
-        elif isinstance(self.frequency, int):
-            completed_days = [d for d, s in self.statuses.items() if s == "COMPLETED"]
-            last_done = (
-                bisect(completed_days, date) - 1
-            )  # index of last completed date before date
-            if last_done >= 0:  # If any date was found
-                last_done = completed_days[last_done]
-                day_gap = (date - last_done).days
-                if day_gap < self.frequency:
-                    due = False
-        elif isinstance(self.frequency, list):
-            cond_month_day = []
-            cond_week_day = []
-            for cond in self.frequency:
-                if any(c.isdigit() for c in cond):  # if has any digits
-                    cond_month_day.append(dateparse(cond).day)
-                else:
-                    cond_week_day.append(dateparse(cond).weekday())
-            if (date.day not in cond_month_day) and (
-                date.weekday() not in cond_week_day
-            ):
-                due = False
-        return due
-
-
-def load_habits_from_file(habits_file: TextIO) -> Dict[str, Habit]:
-    habits = {}
-    for h in yaml.safe_load(habits_file):
-        name = h["name"]
-        frequency = h.get("frequency", 1)  # Default frequency
-        file = h.get("file")
-        habits[name] = Habit(name, frequency, file)
-    return habits
-
-
-def load_log_from_file(habits: Dict[str, Habit], log_file: TextIO) -> Dict[str, Habit]:
-    for entry in csv.DictReader(log_file):
-        name = entry["name"]
-        date = datetime.datetime.strptime(entry["date"], LOG_DATE_FORMAT).date()
-        status = entry["status"]
-        if h := habits.get(name):
-            h.set_status(date, status)
+        # if time is between 00:00 and 03:00, stay on previous day
+        if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(3, 0):
+            self.selected_date = self.today - timedelta(days=1)
         else:
-            h = Habit(name, 0)
-            h.set_status(date, status)
-            h.hide_from_tui = True
-            habits[name] = h
-    return habits
+            self.selected_date = self.today
 
+        self.keybinds = {
+            "KEY_UP": self.move_up,
+            "k": self.move_up,
+            "KEY_DOWN": self.move_down,
+            "j": self.move_down,
+            "KEY_LEFT": self.move_left,
+            "h": self.move_left,
+            "KEY_RIGHT": self.move_right,
+            "l": self.move_right,
+            " ": self.next_status,
+            "t": self.move_to_today,
+            "q": self.stop,
+            "H": self.toggle_hide_completed,
+            "g": self.move_top,
+            "G": self.move_bottom,
+            "E": self.open_in_editor,
+        }
 
-def save_log_to_file(habits: Dict[str, Habit], log_file: TextIO):
-    writer = csv.DictWriter(log_file, fieldnames=["date", "name", "status"])
-    writer.writeheader()
-    for name, habit in habits.items():
-        for date, status in habit.statuses.items():
-            if status is not None:
-                writer.writerow(
-                    {
-                        "date": date.strftime(LOG_DATE_FORMAT),
-                        "name": name,
-                        "status": status,
-                    }
+    def move_up(self, *_):
+        self.selected_habit_nr = max(0, self.selected_habit_nr - 1)
+
+    def move_down(self, *_):
+        self.selected_habit_nr = min(
+            self.selected_habit_nr + 1, len(self.tui_habits) - 1
+        )
+
+    def move_left(self, *_):
+        self.selected_date -= timedelta(days=1)
+
+    def move_right(self, *_):
+        self.selected_date += timedelta(days=1)
+
+    def move_top(self, *_):
+        self.selected_habit_nr = 0
+
+    def move_bottom(self, *_):
+        self.selected_habit_nr = len(self.tui_habits) - 1
+
+    def next_status(self, *_):
+        self.tui_habits[self.selected_habit_nr].log.next_status(self.selected_date)
+
+    def move_to_today(self, *_):
+        self.selected_date = self.today
+
+    def stop(self, *_):
+        self.curses_loop = False
+
+    def toggle_hide_completed(self, *_):
+        self.hide_completed = not self.hide_completed
+
+    def open_in_editor(self, stdscr):
+        if file := self.tui_habits[self.selected_habit_nr].get_file():
+            open_in_editor(file)
+        stdscr.clear()
+        stdscr.refresh()
+
+    def run(self, stdscr):
+        header_pad = curses.newpad(HEADER_HEIGHT, 1000)
+        habits_pad = curses.newpad(len(self.tui_habits), 1000)
+
+        stdscr.refresh()  # needed so everything displays at program start without a keypress
+
+        while self.curses_loop:
+            # The marker for the selected date
+            header_pad.addstr(
+                0, NAME_CUTOFF + DATE_PADDING * DAYS_BACK, "-" * DATE_PADDING
+            )
+
+            # Show selected date and the chosed number of days before/after
+            shown_dates = []
+            for delta in range(-DAYS_BACK, DAYS_FORWARD + 1):
+                shown_dates.append(self.selected_date + timedelta(days=delta))
+
+            for i, date in enumerate(shown_dates):
+                attrb = curses.A_BOLD if date == self.today else curses.A_NORMAL
+                formatted_date = date.strftime(PRETTY_DATE_FORMAT)
+                header_pad.addstr(
+                    1, NAME_CUTOFF + DATE_PADDING * i, formatted_date, attrb
                 )
 
+            # Add habits to pad
+            for row, habit in enumerate(self.tui_habits):
+                name = habit.get_name()
 
-def open_in_editor(file_path: str, editor=None):
-    if file_path:
+                if habit.get_file():
+                    name = "[f] " + name
 
-        if not editor:
-            editor = os.getenv("EDITOR", "vi")
-        file_path = os.path.expanduser(file_path)
-        subprocess.run([editor, file_path], check=False)
+                if len(name) > (last_vis_char := NAME_CUTOFF - 2):
+                    name = name[:last_vis_char] + NAME_CUTOFF_CHAR
 
+                attrb = curses.A_BOLD
+                for i, date in enumerate(shown_dates):
+                    habits_pad.addstr(row, 0, name)
 
-def run(stdscr, habits):
-    today = datetime.date.today()
-    selected_date = today
-    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(3, 0):
-        selected_date -= datetime.timedelta(days=1)
-    selected_habit_nr = 0
+                    if status := habit.log.get_status(date):
+                        text = f"[{STATUSES_DISPLAY[status]}]"
+                        due = False
 
-    tui_habits = []
-    for name, habit in habits.items():
-        if not habit.hide_from_tui:
-            tui_habits.append(habit)
+                    elif due := habit.is_due(date):
+                        text = "[ ]"
 
-    curses_loop = True
-    hide_completed = False
-    header_pad = curses.newpad(HEADER_HEIGHT, 1000)
-    habits_pad = curses.newpad(len(tui_habits), 1000)
+                    else:
+                        text = "[o]"
 
-    stdscr.refresh()  # needed so everything displays at program start without a keypress
+                    if self.hide_completed and not due and date == self.selected_date:
+                        attrb = curses.A_DIM
+                    habits_pad.addstr(row, NAME_CUTOFF + DATE_PADDING * i, text)
+                habits_pad.chgat(row, 0, attrb)
 
-    while curses_loop:
-        # The marker for the selected date
-        header_pad.addstr(0, NAME_CUTOFF + DATE_PADDING * DAYS_BACK, "-" * DATE_PADDING)
+            attrb = curses.A_STANDOUT
+            if bool(habits_pad.inch(self.selected_habit_nr, 0) & curses.A_BOLD):
+                attrb = attrb | curses.A_BOLD
+            habits_pad.chgat(self.selected_habit_nr, 0, attrb)
 
-        # Show selected date and the chosed number of days before/after
-        date_range = [
-            selected_date + datetime.timedelta(days=delta)
-            for delta in range(-DAYS_BACK, DAYS_FORWARD + 1)
-        ]
-        for i, date in enumerate(date_range):
-            attrb = curses.A_BOLD if date == today else curses.A_NORMAL
-            formatted_date = date.strftime(PRETTY_DATE_FORMAT)
-            header_pad.addstr(1, NAME_CUTOFF + DATE_PADDING * i, formatted_date, attrb)
+            # Refresh all pads at once.
+            curses.update_lines_cols()
+            y_max, x_max = [p - 1 for p in stdscr.getmaxyx()]
+            header_pad.refresh(0, 0, 0, 0, HEADER_HEIGHT, x_max)
+            scroll = max(0, self.selected_habit_nr - y_max + HEADER_HEIGHT)
+            habits_pad.refresh(scroll, 0, HEADER_HEIGHT, 0, y_max, x_max)
 
-        # Add habits to pad
-        for row, habit in enumerate(tui_habits):
-            name = habit.get_name()
-            if habit.get_file():
-                name = "[f] " + name
-            if len(name) > (l := NAME_CUTOFF - 2):
-                name = name[:l] + NAME_CUTOFF_CHAR
-            attrb = curses.A_BOLD
-            for i, date in enumerate(date_range):
-                due = habit.is_due(date)
-                status = habit.get_status(date)
-                habits_pad.addstr(row, 0, name)
-                if status:
-                    text = f"[{STATUSES_DISPLAY[status]}]"
-                elif due:
-                    text = "[ ]"
-                else:
-                    text = "[o]"
-                if hide_completed and not due and date == selected_date:
-                    attrb = curses.A_DIM
-                habits_pad.addstr(row, NAME_CUTOFF + DATE_PADDING * i, text)
-            habits_pad.chgat(row, 0, attrb)
-
-        attrb = curses.A_STANDOUT
-        if bool(habits_pad.inch(selected_habit_nr, 0) & curses.A_BOLD):
-            attrb = attrb | curses.A_BOLD
-        habits_pad.chgat(selected_habit_nr, 0, attrb)
-
-        # Refresh all pads at once.
-        curses.update_lines_cols()
-        y_max, x_max = [p - 1 for p in stdscr.getmaxyx()]
-        header_pad.refresh(0, 0, 0, 0, HEADER_HEIGHT, x_max)
-        scroll = max(0, selected_habit_nr - y_max + HEADER_HEIGHT)
-        habits_pad.refresh(scroll, 0, HEADER_HEIGHT, 0, y_max, x_max)
-
-        match key := stdscr.getkey():
-            case "KEY_UP" | "k":
-                selected_habit_nr = max(0, selected_habit_nr - 1)
-            case "KEY_DOWN" | "j":
-                selected_habit_nr = min(selected_habit_nr + 1, len(tui_habits) - 1)
-            case "KEY_LEFT" | "h":
-                selected_date -= datetime.timedelta(days=1)
-            case "KEY_RIGHT" | "l":
-                selected_date += datetime.timedelta(days=1)
-            case " ":
-                tui_habits[selected_habit_nr].toggle_status(selected_date)
-            case "t":
-                selected_date = today
-            case "q":
-                curses_loop = False
-            case "H":
-                hide_completed = not hide_completed
-            case "g":
-                selected_habit_nr = 0
-            case "G":
-                selected_habit_nr = len(tui_habits) - 1
-            case "E":
-                try:
-                    open_in_editor(tui_habits[selected_habit_nr].get_file())
-                finally:
-                    stdscr.clear()
-                    stdscr.refresh()
-            case _:
+            if (key := stdscr.getkey()) in self.keybinds:
+                self.keybinds[key](stdscr)
+            else:
                 print(key)
-
-
-def main(habits_file, log_file):
-    with open(habits_file, "r", encoding="utf-8") as f:
-        habits = load_habits_from_file(f)
-
-    try:
-        with open(log_file, "r", encoding="utf-8") as f:
-            habits = load_log_from_file(habits, f)
-    except FileNotFoundError:
-        pass
-
-    curses.wrapper(lambda stdscr: run(stdscr, habits))
-
-    with open(log_file, "w", encoding="utf-8") as f:
-        save_log_to_file(habits, f)

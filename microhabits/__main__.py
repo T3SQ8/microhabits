@@ -5,12 +5,14 @@ configurations based on XDG Base Directory specification and launches TUI.
 
 import argparse
 import sys
+from curses import wrapper
 from os import getenv
 from pathlib import Path
 
 from filelock import FileLock, Timeout
 
-from .tui import main as tui_main
+from .habits_collection import HabitsManager
+from .tui import CursesTui
 
 LOCK_FILE = "/tmp/microhabits.lock"
 
@@ -51,10 +53,17 @@ def main():
 
     try:
         with FileLock(LOCK_FILE, timeout=0):
-            tui_main(args.habits_file, args.log_file)
+            start_tui(args.habits_file, args.log_file)
     except Timeout:
         print("Another instance is already running. Exiting.")
         sys.exit(1)
+
+
+def start_tui(habits_file, log_file):
+    habits = HabitsManager(habits_file, log_file)
+    tui = CursesTui(habits)
+    wrapper(tui.run)
+    habits.save_log_to_file()
 
 
 if __name__ == "__main__":

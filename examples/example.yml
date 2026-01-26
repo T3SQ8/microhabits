@@ -1,16 +1,26 @@
+habits:
+  - name: Exercise
+    due_on:
+      days_of_week: ['monday', 'wednesday', 'friday']
 
-- name: Exercise
-  frequency: ['Monday', 'Wednesday', 'Saturday'] # Specific days of the week
+  - name: Random habit
+    due_on:
+      frequency: 3 # due every 3 days
 
-- name: Clean House
-  frequency: 3 # Every 3 days
+  - name: Backup
+    file: backup-steps.txt
+    due_on:
+      days_of_month: [1, 15]
 
-- name: Backup
-  frequency: ['1st', '15th'] # Every 1st and 15th of every month
-  file: backup-steps.txt
+  - name: Really Really Really Really Really Long Name
+    # due daily by default
 
-- name: Take a long walk on the beach # Example of long name
-  # Default frequency daily
+  - name: Play videogames
+    due_on:
+      frequency: 0 # will never be shown as due
 
-- name: Play videogames # Habits that don't need to be done but are tracked
-  frequency: 0
+  - name: Habit that is due on every monday or every 4th day
+    file: backup-steps.txt
+    due_on:
+      days_of_week: ['monday']
+      frequency: 4
