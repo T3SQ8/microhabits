@@ -2,3 +2,4 @@ __pycache__
 build
 microhabits.egg-info
 test.log
+.DS_Store

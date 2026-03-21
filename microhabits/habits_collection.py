@@ -25,6 +25,9 @@ class HabitsManager:
             habits = {}
             for habit in yaml.safe_load(f)["habits"]:
                 name = habit["name"]
+                if name in habits:
+                    msg = f'habit with name "{name}" exists multiple times in "{habits_file}"'
+                    raise Exception(msg)
                 due_on = habit.get(
                     "due_on", {"frequency": 1}
                 )  # Default frequency daily
