@@ -1,9 +1,11 @@
 import curses
 import datetime
 from datetime import timedelta
+from pathlib import Path
 
 from .habit import Habit
 from .habits_collection import HabitsManager
+from .options import OptionsManager
 from .task_functions import open_in_editor
 
 STATUSES_DISPLAY = {
@@ -24,9 +26,11 @@ PRETTY_DATE_FORMAT = "%d/%m (%a)"
 
 
 class CursesTui:
-    def __init__(self, habits: HabitsManager) -> None:
+    def __init__(self, habits: HabitsManager, options_file: Path | None) -> None:
         self.habits_manager: HabitsManager = habits
-        self.hide_completed = False
+        self.options: OptionsManager = OptionsManager()
+        if options_file:
+            self.options.load_conf_file(options_file)
         self.selected_habit_nr = 0
         self.curses_loop = True
 
@@ -93,7 +97,7 @@ class CursesTui:
         self.curses_loop = False
 
     def toggle_hide_completed(self, *_):
-        self.hide_completed = not self.hide_completed
+        self.options.toggle_option("hide_completed")
 
     def open_in_editor(self, stdscr):
         if file := self.tui_habits[self.selected_habit_nr].get_file():
@@ -149,7 +153,11 @@ class CursesTui:
                     else:
                         text = "[o]"
 
-                    if self.hide_completed and not due and date == self.selected_date:
+                    if (
+                        self.options.get("hide_completed")
+                        and not due
+                        and date == self.selected_date
+                    ):
                         attrb = curses.A_DIM
                     habits_pad.addstr(row, NAME_CUTOFF + DATE_PADDING * i, text)
                 habits_pad.chgat(row, 0, attrb)
