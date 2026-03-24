@@ -16,6 +16,7 @@ STATUSES_DISPLAY = {
 }
 
 NAME_CUTOFF = 25
+LAST_VISIBLE_CHARACTER = NAME_CUTOFF - 2
 NAME_CUTOFF_CHAR = "…"
 DATE_PADDING = 14
 DAYS_BACK = 1
@@ -23,6 +24,37 @@ DAYS_FORWARD = 1
 HEADER_HEIGHT = 2
 
 PRETTY_DATE_FORMAT = "%d/%m (%a)"
+
+
+class _Pad:
+    def __init__(self, *, height: int, width: int, x: int, y: int) -> None:
+        self.pad: curses.window = curses.newpad(height, width)
+        self.x, self.y = x, y
+
+    def add_str(
+        self, *, x: int, y: int, text: str, attr: int = curses.A_NORMAL
+    ) -> None:
+        self.pad.addstr(y, x, text, attr)
+
+    def refresh(self, pminrow, pmincol, sminrow, smincol, smaxrow, smaxcol):
+        self.pad.refresh(pminrow, pmincol, sminrow, smincol, smaxrow, smaxcol)
+
+
+class _Row:
+    def __init__(self) -> None:
+        self.contents: list[str] = []
+
+    def add(self, _str) -> None:
+        self.contents.append(_str)
+
+    def add_start(self, _str) -> None:
+        self.contents.insert(0, _str)
+
+    def add_padded(self, _str, spaces_to_right) -> None:
+        self.add(_str.ljust(spaces_to_right))
+
+    def get(self) -> str:
+        return "".join(self.contents)
 
 
 class CursesTui:
@@ -106,15 +138,18 @@ class CursesTui:
         stdscr.refresh()
 
     def run(self, stdscr):
-        header_pad = curses.newpad(HEADER_HEIGHT, 1000)
-        habits_pad = curses.newpad(len(self.tui_habits), 1000)
+        curses.curs_set(0)  # hide cursor
+        header_pad = _Pad(height=HEADER_HEIGHT, width=1000, x=0, y=0)
+        habits_pad = _Pad(height=len(self.tui_habits), width=1000, x=0, y=0)
 
         stdscr.refresh()  # needed so everything displays at program start without a keypress
 
         while self.curses_loop:
             # The marker for the selected date
-            header_pad.addstr(
-                0, NAME_CUTOFF + DATE_PADDING * DAYS_BACK, "-" * DATE_PADDING
+            header_pad.add_str(
+                x=NAME_CUTOFF + DATE_PADDING * DAYS_BACK,
+                y=0,
+                text="-" * DATE_PADDING,
             )
 
             # Show selected date and the chosed number of days before/after
@@ -123,49 +158,51 @@ class CursesTui:
                 shown_dates.append(self.selected_date + timedelta(days=delta))
 
             for i, date in enumerate(shown_dates):
-                attrb = curses.A_BOLD if date == self.today else curses.A_NORMAL
                 formatted_date = date.strftime(PRETTY_DATE_FORMAT)
-                header_pad.addstr(
-                    1, NAME_CUTOFF + DATE_PADDING * i, formatted_date, attrb
+                header_pad.add_str(
+                    x=NAME_CUTOFF + DATE_PADDING * i,
+                    y=1,
+                    text=formatted_date,
+                    attr=curses.A_BOLD if date == self.today else curses.A_NORMAL,
                 )
 
             # Add habits to pad
             for row, habit in enumerate(self.tui_habits):
+                row_contents = _Row()
+
                 name = habit.get_name()
 
+                # Add indicator if the habit has an associated file
                 if habit.get_file():
-                    name = "[f] " + name
+                    name = f"[f] {name}"
 
-                if len(name) > (last_vis_char := NAME_CUTOFF - 2):
-                    name = name[:last_vis_char] + NAME_CUTOFF_CHAR
+                # Shorten long names
+                if len(name) > LAST_VISIBLE_CHARACTER:
+                    name = name[:LAST_VISIBLE_CHARACTER] + NAME_CUTOFF_CHAR
+                row_contents.add_padded(name, NAME_CUTOFF)
 
-                attrb = curses.A_BOLD
+                # Add toggle for each date shown
                 for i, date in enumerate(shown_dates):
-                    habits_pad.addstr(row, 0, name)
-
-                    if status := habit.log.get_status(date):
-                        text = f"[{STATUSES_DISPLAY[status]}]"
-                        due = False
-
-                    elif due := habit.is_due(date):
-                        text = "[ ]"
-
+                    if s := habit.log.get_status(date):
+                        toggle = f"[{STATUSES_DISPLAY[s]}]"
+                    elif habit.is_due(date):
+                        toggle = "[ ]"
                     else:
-                        text = "[o]"
+                        toggle = "[o]"
+                    row_contents.add_padded(toggle, DATE_PADDING)
 
-                    if (
-                        self.options.get("hide_completed")
-                        and not due
-                        and date == self.selected_date
-                    ):
-                        attrb = curses.A_DIM
-                    habits_pad.addstr(row, NAME_CUTOFF + DATE_PADDING * i, text)
-                habits_pad.chgat(row, 0, attrb)
+                # Highlight rows depending on options and selected toggle
+                if self.options.get("hide_completed") and not habit.is_due(
+                    self.selected_date
+                ):
+                    attr = curses.A_DIM
+                else:
+                    attr = curses.A_BOLD
 
-            attrb = curses.A_STANDOUT
-            if bool(habits_pad.inch(self.selected_habit_nr, 0) & curses.A_BOLD):
-                attrb = attrb | curses.A_BOLD
-            habits_pad.chgat(self.selected_habit_nr, 0, attrb)
+                if row == self.selected_habit_nr:
+                    attr = attr | curses.A_STANDOUT
+
+                habits_pad.add_str(x=0, y=row, text=row_contents.get(), attr=attr)
 
             # Refresh all pads at once.
             curses.update_lines_cols()

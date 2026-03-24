@@ -6,6 +6,10 @@ from .log import Log
 
 def check_due(log: Log, due_on: dict, selected_day: datetime.date) -> bool:
     # pylint: disable=too-many-return-statements
+
+    if log.get_status(selected_day):
+        return False
+
     if "days_of_week" in due_on:
         if selected_day.strftime("%A").lower() in due_on["days_of_week"]:
             return True
