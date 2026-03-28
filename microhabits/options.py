@@ -14,6 +14,7 @@ DEFAULT_OPTIONS = {
     "days_forward": 1,
     "header_height": 2,
     "pretty_date_format": "%d/%m (%a)",
+    "show_alias": False,
 }
 
 

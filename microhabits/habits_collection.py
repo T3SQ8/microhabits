@@ -26,13 +26,15 @@ class HabitsManager:
             for habit in yaml.safe_load(f)["habits"]:
                 name = habit["name"]
                 if name in habits:
-                    msg = f'habit with name "{name}" exists multiple times in "{habits_file}"'
-                    raise Exception(msg)
+                    raise ValueError(
+                        f'habit with name "{name}" exists multiple times in "{habits_file}"'
+                    )
                 due_on = habit.get(
                     "due_on", {"frequency": 1}
                 )  # Default frequency daily
                 file = habit.get("file")
-                habits[name] = Habit(name, due_on, file)
+                alias = habit.get("alias")
+                habits[name] = Habit(name, due_on, file, alias)
             return habits
 
     def load_log_from_file(self, log_file: str) -> None:
@@ -52,7 +54,10 @@ class HabitsManager:
                     # removing this section will delete the habits past logs next time it is saved
                     # to file
                     habit = Habit(
-                        name=name, due_on={"frequency": 0}, associated_file=None
+                        name=name,
+                        due_on={"frequency": 0},
+                        associated_file=None,
+                        alias=None,
                     )
                     habit.log.set_status(date, status)
                     habit.hide_from_tui = True

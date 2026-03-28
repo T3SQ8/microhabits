@@ -79,6 +79,7 @@ class CursesTui:
             "t": self.move_to_today,
             "q": self.stop,
             "H": self.toggle_hide_completed,
+            "A": self.toggle_show_aliases,
             "g": self.move_top,
             "G": self.move_bottom,
             "E": self.open_in_editor,
@@ -116,6 +117,9 @@ class CursesTui:
     def toggle_hide_completed(self, *_):
         self.options.toggle_option("hide_completed")
 
+    def toggle_show_aliases(self, *_):
+        self.options.toggle_option("show_alias")
+
     def open_in_editor(self, stdscr):
         if file := self.tui_habits[self.selected_habit_nr].get_file():
             open_in_editor(file)
@@ -124,7 +128,11 @@ class CursesTui:
 
     def run(self, stdscr):
         def _format_name(habit: Habit) -> str:
-            name = habit.get_name()
+            name = (
+                habit.get_alias_or_name()
+                if self.options.get("show_alias")
+                else habit.get_name()
+            )
 
             # Add indicator if the habit has an associated file
             if habit.get_file():

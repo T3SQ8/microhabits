@@ -2,6 +2,7 @@ habits:
   - name: Exercise
     due_on:
       days_of_week: ['monday', 'wednesday', 'friday']
+    alias: GYM
 
   - name: Random habit
     due_on:
@@ -11,9 +12,11 @@ habits:
     file: backup-steps.txt
     due_on:
       days_of_month: [1, 15]
+    alias: BKPS
 
   - name: Really Really Really Really Really Long Name
     # due daily by default
+    alias: REALLY
 
   - name: Play videogames
     due_on:
