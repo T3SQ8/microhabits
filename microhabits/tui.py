@@ -15,46 +15,31 @@ STATUSES_DISPLAY = {
     "FAILED": "n",
 }
 
-NAME_CUTOFF = 25
-LAST_VISIBLE_CHARACTER = NAME_CUTOFF - 2
-NAME_CUTOFF_CHAR = "…"
-DATE_PADDING = 14
-DAYS_BACK = 1
-DAYS_FORWARD = 1
-HEADER_HEIGHT = 2
-
-PRETTY_DATE_FORMAT = "%d/%m (%a)"
-
 
 class _Pad:
-    def __init__(self, *, height: int, width: int, x: int, y: int) -> None:
-        self.pad: curses.window = curses.newpad(height, width)
-        self.x, self.y = x, y
+    def __init__(self) -> None:
+        self.pad: curses.window
+        self.contents: list[tuple[str, int]] = []
 
     def add_str(
-        self, *, x: int, y: int, text: str, attr: int = curses.A_NORMAL
+        self, content: str, attr: int = curses.A_NORMAL, padding: int = 0
     ) -> None:
-        self.pad.addstr(y, x, text, attr)
+        self.contents.append((content.rjust(padding), attr))
+
+    def get_height(self) -> int:
+        return len(self.contents)
+
+    def get_width(self) -> int:
+        return max(len(content) for content, _ in self.contents)
 
     def refresh(self, pminrow, pmincol, sminrow, smincol, smaxrow, smaxcol):
+        self.pad = curses.newpad(self.get_height() + 1, self.get_width() + 1)
+        for row, content in enumerate(self.contents):
+            self.pad.addstr(row, 0, content[0], content[1])
         self.pad.refresh(pminrow, pmincol, sminrow, smincol, smaxrow, smaxcol)
 
-
-class _Row:
-    def __init__(self) -> None:
-        self.contents: list[str] = []
-
-    def add(self, _str) -> None:
-        self.contents.append(_str)
-
-    def add_start(self, _str) -> None:
-        self.contents.insert(0, _str)
-
-    def add_padded(self, _str, spaces_to_right) -> None:
-        self.add(_str.ljust(spaces_to_right))
-
-    def get(self) -> str:
-        return "".join(self.contents)
+    def __repr__(self) -> str:
+        return "\n".join(c[0] for c in self.contents)
 
 
 class CursesTui:
@@ -138,58 +123,69 @@ class CursesTui:
         stdscr.refresh()
 
     def run(self, stdscr):
-        curses.curs_set(0)  # hide cursor
-        header_pad = _Pad(height=HEADER_HEIGHT, width=1000, x=0, y=0)
-        habits_pad = _Pad(height=len(self.tui_habits), width=1000, x=0, y=0)
+        def _format_name(habit: Habit) -> str:
+            name = habit.get_name()
 
+            # Add indicator if the habit has an associated file
+            if habit.get_file():
+                name = f"[f] {name}"
+
+            # Shorten long names
+            last_visible_character = name_cutoff - 2
+            if len(name) > last_visible_character:
+                name = name[:last_visible_character] + self.options.get(
+                    "name_cutoff_char"
+                )
+
+            return name.ljust(name_cutoff)
+
+        curses.curs_set(0)  # hide cursor
         stdscr.refresh()  # needed so everything displays at program start without a keypress
 
         while self.curses_loop:
+            header_pad = _Pad()
+            habits_pad = _Pad()
+            date_padding = self.options.get("date_padding")
+            name_cutoff = self.options.get("name_cutoff")
+
+            header_pad.add_str("MICROHABITS".rjust(name_cutoff), attr=curses.A_BOLD)
+
             # The marker for the selected date
             header_pad.add_str(
-                x=NAME_CUTOFF + DATE_PADDING * DAYS_BACK,
-                y=0,
-                text="-" * DATE_PADDING,
+                " " * (name_cutoff + date_padding * self.options.get("days_back"))
+                + "-" * date_padding,
+                attr=curses.A_BOLD,
             )
 
-            # Show selected date and the chosed number of days before/after
-            shown_dates = []
-            for delta in range(-DAYS_BACK, DAYS_FORWARD + 1):
-                shown_dates.append(self.selected_date + timedelta(days=delta))
-
-            for i, date in enumerate(shown_dates):
-                formatted_date = date.strftime(PRETTY_DATE_FORMAT)
-                header_pad.add_str(
-                    x=NAME_CUTOFF + DATE_PADDING * i,
-                    y=1,
-                    text=formatted_date,
-                    attr=curses.A_BOLD if date == self.today else curses.A_NORMAL,
+            # Choose dates to be shown
+            on_screen_dates = [
+                self.selected_date + timedelta(days=delta)
+                for delta in range(
+                    -self.options.get("days_back"), self.options.get("days_forward") + 1
                 )
+            ]
+
+            shown_dates = " " * name_cutoff
+            for date in on_screen_dates:
+                shown_dates += date.strftime(
+                    self.options.get("pretty_date_format")
+                ).ljust(date_padding)
+
+            header_pad.add_str(shown_dates)
 
             # Add habits to pad
             for row, habit in enumerate(self.tui_habits):
-                row_contents = _Row()
-
-                name = habit.get_name()
-
-                # Add indicator if the habit has an associated file
-                if habit.get_file():
-                    name = f"[f] {name}"
-
-                # Shorten long names
-                if len(name) > LAST_VISIBLE_CHARACTER:
-                    name = name[:LAST_VISIBLE_CHARACTER] + NAME_CUTOFF_CHAR
-                row_contents.add_padded(name, NAME_CUTOFF)
+                habit_row: str = _format_name(habit)
 
                 # Add toggle for each date shown
-                for i, date in enumerate(shown_dates):
+                for date in on_screen_dates:
                     if s := habit.log.get_status(date):
                         toggle = f"[{STATUSES_DISPLAY[s]}]"
                     elif habit.is_due(date):
                         toggle = "[ ]"
                     else:
                         toggle = "[o]"
-                    row_contents.add_padded(toggle, DATE_PADDING)
+                    habit_row += toggle.ljust(date_padding)
 
                 # Highlight rows depending on options and selected toggle
                 if self.options.get("hide_completed") and not habit.is_due(
@@ -200,16 +196,18 @@ class CursesTui:
                     attr = curses.A_BOLD
 
                 if row == self.selected_habit_nr:
-                    attr = attr | curses.A_STANDOUT
+                    attr |= curses.A_STANDOUT
 
-                habits_pad.add_str(x=0, y=row, text=row_contents.get(), attr=attr)
+                habits_pad.add_str(habit_row, attr=attr)
 
             # Refresh all pads at once.
-            curses.update_lines_cols()
+            curses.update_lines_cols()  # detect screen resize
             y_max, x_max = [p - 1 for p in stdscr.getmaxyx()]
-            header_pad.refresh(0, 0, 0, 0, HEADER_HEIGHT, x_max)
-            scroll = max(0, self.selected_habit_nr - y_max + HEADER_HEIGHT)
-            habits_pad.refresh(scroll, 0, HEADER_HEIGHT, 0, y_max, x_max)
+
+            header_bottom = header_pad.get_height() - 1
+            scroll = max(0, self.selected_habit_nr - y_max + header_bottom)
+            header_pad.refresh(0, 0, 0, 0, header_bottom, x_max)
+            habits_pad.refresh(scroll, 0, header_bottom + 1, 0, y_max, x_max)
 
             if (key := stdscr.getkey()) in self.keybinds:
                 self.keybinds[key](stdscr)

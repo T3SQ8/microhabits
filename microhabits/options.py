@@ -7,6 +7,13 @@ import yaml
 
 DEFAULT_OPTIONS = {
     "hide_completed": False,
+    "name_cutoff": 25,
+    "name_cutoff_char": "…",
+    "date_padding": 14,
+    "days_back": 1,
+    "days_forward": 1,
+    "header_height": 2,
+    "pretty_date_format": "%d/%m (%a)",
 }
 
 

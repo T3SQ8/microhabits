@@ -1,1 +1,4 @@
 hide_completed: true
+name_cutoff: 50
+days_back: 2
+days_forward: 2
