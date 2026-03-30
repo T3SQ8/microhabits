@@ -1,5 +1,8 @@
+"""Provides functionality to determine whether a habit is due on a given date
+based on various scheduling criteria (weekdays, days of month, frequency)."""
+
 import datetime
-from typing import Literal, Optional, TypeAlias, TypedDict
+from typing import Literal, NotRequired, Optional, TypeAlias, TypedDict
 
 from .log import Log
 
@@ -8,22 +11,19 @@ DayName: TypeAlias = Literal[
 ]
 
 
-class DueFrequency(TypedDict):
-    frequency: int
+class DueCriteria(TypedDict):
+    """Criteria for determining when a habit is due."""
+
+    days_of_week: NotRequired[list[DayName]]
+    days_of_month: NotRequired[list[int]]
+    frequency: NotRequired[int]
 
 
-class DueDayOfWeek(TypedDict):
-    days_of_week: list[DayName]
-
-
-class DueDayOfMonth(TypedDict):
-    days_of_month: list[int]
-
-
-DueOn: TypeAlias = Optional[DueFrequency | DueDayOfWeek | DueDayOfMonth]
+type DueOn = Optional[DueCriteria]
 
 
 def check_due(log: Log, due_on: DueOn, selected_day: datetime.date) -> bool:
+    """Determine if a habit is due on the selected day."""
     # pylint: disable=too-many-return-statements
 
     # Not due if a status is set

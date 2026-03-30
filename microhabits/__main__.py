@@ -75,6 +75,7 @@ def main():
 
 
 def start_tui(habits_file, log_file, conf_file):
+    """Initialize and run the terminal user interface."""
     habits = HabitsManager(habits_file, log_file)
 
     tui = CursesTui(habits, conf_file if conf_file.is_file() else None)

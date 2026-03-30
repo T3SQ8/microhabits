@@ -1,3 +1,6 @@
+"""Provides HabitsManager class for loading, managing, and logging habits and
+their completion logs to and from YAML and CSV files."""
+
 import csv
 from datetime import datetime
 from os.path import isfile
@@ -10,7 +13,10 @@ LOG_DATE_FORMAT = "%Y-%m-%d"
 
 
 class HabitsManager:
+    """Manages a collection of habits with persistence to files."""
+
     def __init__(self, habits_file: str, log_file: str):
+        """Initialize the HabitsManager and load habits and logs from files."""
         self.habits_file = habits_file
         self.log_file = log_file
         self.habits: dict[str, Habit]
@@ -21,6 +27,7 @@ class HabitsManager:
             self.load_log_from_file(log_file)
 
     def load_habits_from_file(self, habits_file: str) -> dict[str, Habit]:
+        """Load habit definitions from a YAML file."""
         with open(habits_file, "r", encoding="utf-8") as f:
             habits = {}
             for habit in yaml.safe_load(f)["habits"]:
@@ -36,15 +43,17 @@ class HabitsManager:
             return habits
 
     def load_log_from_file(self, log_file: str) -> None:
+        """Load completion logs from a CSV file and apply to habits."""
         with open(log_file, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
 
             for entry in reader:
                 name = entry["name"]
+                status = entry["status"]
                 date = datetime.strptime(
                     entry["date"], LOG_DATE_FORMAT
                 ).date()  # str to datetime obj
-                status = entry["status"]
+
                 if habit := self.habits.get(name):
                     habit.log.set_status(date, status)
                 else:
@@ -52,16 +61,12 @@ class HabitsManager:
                     # removing this section will delete the habits past logs next time it is saved
                     # to file
                     habit = Habit(
-                        name=name,
-                        due_on={"frequency": 0},
-                        associated_file=None,
-                        alias=None,
+                        name=name, due_on={"frequency": 0}, hide_from_tui=True
                     )
-                    habit.log.set_status(date, status)
-                    habit.hide_from_tui = True
-                    self.habits[name] = habit
+                    habit.set_status(date, status)
 
     def save_log_to_file(self):
+        """Save all habit completion logs to a CSV file."""
         with open(self.log_file, "w", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=["date", "name", "status"])
             writer.writeheader()
