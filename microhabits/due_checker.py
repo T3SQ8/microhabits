@@ -1,37 +1,60 @@
 import datetime
-from datetime import timedelta
+from typing import Literal, Optional, TypeAlias, TypedDict
 
 from .log import Log
 
+DayName: TypeAlias = Literal[
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+]
 
-def check_due(log: Log, due_on: dict, selected_day: datetime.date) -> bool:
+
+class DueFrequency(TypedDict):
+    frequency: int
+
+
+class DueDayOfWeek(TypedDict):
+    days_of_week: list[DayName]
+
+
+class DueDayOfMonth(TypedDict):
+    days_of_month: list[int]
+
+
+DueOn: TypeAlias = Optional[DueFrequency | DueDayOfWeek | DueDayOfMonth]
+
+
+def check_due(log: Log, due_on: DueOn, selected_day: datetime.date) -> bool:
     # pylint: disable=too-many-return-statements
 
+    # Not due if a status is set
     if log.get_status(selected_day):
         return False
 
-    if "days_of_week" in due_on:
-        if selected_day.strftime("%A").lower() in due_on["days_of_week"]:
+    # Always due if due_on has not been specified.
+    # This is equivalent to saying default frequency=1
+    if due_on is None:
+        return True
+
+    # Due if the selected day of week is one of the specified days
+    if due_days_of_week := due_on.get("days_of_week"):
+        if selected_day.strftime("%A").lower() in due_days_of_week:
             return True
 
-    if "days_of_month" in due_on:
-        if selected_day.day in due_on["days_of_month"]:
+    # Due if the selected day of month is one of the specified days
+    if due_days_of_month := due_on.get("days_of_month"):
+        if selected_day.day in due_days_of_month:
             return True
 
-    if "frequency" in due_on:
-        freq: int = due_on["frequency"]
-        match freq:
-            case 0:
+    # Frequency specifies the space between each day until due
+    if specified_frequency := due_on.get("frequency"):
+        match specified_frequency:
+            case 0:  # Never due if frequency=0
                 return False
             case 1:
                 return True
             case _:
-                # go back and check as many days as specified
-                # and check if any of them are completed
-                for n in range(freq):
-                    n_days_before = selected_day - timedelta(n)
-                    if log.get_status(n_days_before) == "COMPLETED":
-                        return False
+                if "COMPLETED" in log.n_days_before(selected_day, specified_frequency):
+                    return False
                 return True
 
-    return False
+    return False  # If none of the cases above apply

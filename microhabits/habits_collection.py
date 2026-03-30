@@ -29,9 +29,7 @@ class HabitsManager:
                     raise ValueError(
                         f'habit with name "{name}" exists multiple times in "{habits_file}"'
                     )
-                due_on = habit.get(
-                    "due_on", {"frequency": 1}
-                )  # Default frequency daily
+                due_on = habit.get("due_on")  # Default frequency daily
                 file = habit.get("file")
                 alias = habit.get("alias")
                 habits[name] = Habit(name, due_on, file, alias)
