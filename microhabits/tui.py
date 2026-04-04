@@ -83,6 +83,7 @@ class CursesTui:
             "g": self.move_top,
             "G": self.move_bottom,
             "E": self.open_in_editor,
+            "S": self.toggle_all,
         }
 
     def move_up(self, *_):
@@ -125,6 +126,14 @@ class CursesTui:
             open_in_editor(file)
         stdscr.clear()
         stdscr.refresh()
+
+    def toggle_all(self, *_):
+        self.tui_habits[self.selected_habit_nr].log.next_status(self.selected_date)
+        wanted_status = self.tui_habits[self.selected_habit_nr].log.get_status(
+            self.selected_date
+        )
+        for habit in self.tui_habits:
+            habit.log.set_status(self.selected_date, wanted_status)
 
     def run(self, stdscr):
         def _format_name(habit: Habit) -> str:
