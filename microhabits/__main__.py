@@ -13,7 +13,7 @@ from filelock import FileLock, Timeout
 
 from .habits_collection import HabitsManager
 from .options import OptionsManager
-from .tui import CursesTui
+from .tui import run
 
 LOCK_FILE = "/tmp/microhabits.lock"
 
@@ -71,7 +71,7 @@ def main():
         with FileLock(LOCK_FILE, timeout=0):
             habits = HabitsManager(args.habits_file, args.log_file).load_files()
             options: OptionsManager = OptionsManager().load_conf_file(args.conf_file)
-            wrapper(CursesTui(habits, options).run)
+            wrapper(lambda stdscr: run(stdscr, habits, options))
             habits.save_log_to_file()
     except Timeout:
         print("Another instance is already running. Exiting.")

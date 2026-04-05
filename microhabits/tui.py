@@ -2,6 +2,7 @@
 
 import curses
 import datetime
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Callable
 
@@ -37,6 +38,8 @@ KEYBINDS: dict[str, Callable] = {
     "S": keybinds.next_status_all,
 }
 
+type Position = tuple[int, int]
+
 
 class _Pad:
     """Helper for managing text contents in curses pads."""
@@ -60,11 +63,14 @@ class _Pad:
         """Returns widest row in pad."""
         return max(len(content) for content, _ in self.contents)
 
-    def refresh(self, pminrow, pmincol, sminrow, smincol, smaxrow, smaxcol):
+    def refresh(self, pad_min: Position, screen_min: Position, screen_max: Position):
         """Shows the pad at the specified position"""
         self.pad = curses.newpad(self.get_height() + 1, self.get_width() + 1)
         for row, content in enumerate(self.contents):
             self.pad.addstr(row, 0, content[0], content[1])
+        pminrow, pmincol = pad_min
+        sminrow, smincol = screen_min
+        smaxrow, smaxcol = screen_max
         self.pad.refresh(pminrow, pmincol, sminrow, smincol, smaxrow, smaxcol)
 
     def __repr__(self) -> str:
@@ -72,130 +78,160 @@ class _Pad:
         return "\n".join(c[0] for c in self.contents)
 
 
-class CursesTui:
-    """TUI-interface for the program."""
+@dataclass
+class TuiState:
+    """Manages state of TUI."""
 
-    def __init__(self, habits: HabitsManager, options: OptionsManager) -> None:
-        self.curses_loop = True
-        self.habits_manager: HabitsManager = habits
-        self.options: OptionsManager = options
-        self.today: datetime.date = datetime.date.today()
-        self.stdscr: curses.window = curses.initscr()
+    tui_habits: list[Habit]
+    today: datetime.date = datetime.date.today()
+    curses_loop: bool = True
 
-        # ignore habits that only exist in log file, see load_log_from_file()
-        self.tui_habits = self.habits_manager.get_unhidden()
+    def __post_init__(self) -> None:
+        self.selected_date = self.today
         self.selected_habit = self.tui_habits[0]
 
-        # if time is between 00:00 and 03:00, stay on previous day
-        self.selected_date = (
-            self.today - timedelta(days=1)
-            if (
-                datetime.time(0, 0)
-                <= datetime.datetime.now().time()
-                < datetime.time(3, 0)
-            )
-            else self.today
+
+def _format_name(
+    habit: Habit, show_alias: bool, name_cutoff: int, cutoff_char: str
+) -> str:
+    name = habit.get_alias_or_name() if show_alias else habit.get_name()
+
+    # Add indicator if the habit has an associated file
+    if habit.get_file():
+        name = f"[f] {name}"
+
+    # Shorten long names
+    last_visible_character = name_cutoff - 2
+    if len(name) > last_visible_character:
+        name = name[:last_visible_character] + cutoff_char
+
+    return name.ljust(name_cutoff)
+
+
+def _dates_row(
+    dates: list[datetime.date], name_cutoff: int, pretty_format: str, padding: int
+) -> str:
+    shown_dates = " " * name_cutoff
+    for date in dates:
+        shown_dates += date.strftime(pretty_format).ljust(padding)
+    return shown_dates
+
+
+def _decide_toggle(habit: Habit, date: datetime.date) -> str:
+    if s := habit.get_status(date):
+        toggle_char = STATUSES_DISPLAY[s]
+    elif habit.is_due(date):
+        toggle_char = " "
+    else:
+        toggle_char = "o"
+    return f"[{toggle_char}]"
+
+
+def _decide_attr(is_selected: bool, hide_completed: bool, is_due: bool) -> int:
+    if hide_completed and not is_due:
+        attr = curses.A_DIM
+    else:
+        attr = curses.A_BOLD
+    if is_selected:
+        attr |= curses.A_STANDOUT
+    return attr
+
+
+def _get_selected_index(habits: list[Habit], habit: Habit):
+    return habits.index(habit)
+
+
+def _refresh_pads(
+    stdscr,
+    header_pad: _Pad,
+    habits_pad: _Pad,
+    selected_habits_nr: int,
+    scroll_margin: int,
+):
+    y_max, x_max = (p - 1 for p in stdscr.getmaxyx())
+    header_bottom = header_pad.get_height() - 1
+    scroll = max(0, selected_habits_nr - y_max + header_bottom + scroll_margin)
+    header_pad.refresh((0, 0), (0, 0), (header_bottom, x_max))
+    habits_pad.refresh((scroll, 0), (header_bottom + 1, 0), (y_max, x_max))
+
+
+def _handle_keypress(key: str, tui: TuiState, options: OptionsManager, stdscr) -> None:
+    if key in KEYBINDS:
+        KEYBINDS[key](tui=tui, options=options, stdscr=stdscr)
+
+
+def run(stdscr, habits_manager: HabitsManager, options: OptionsManager):
+    """Start TUI."""
+    tui = TuiState(habits_manager.get_unhidden())
+
+    # if time is between 00:00 and 03:00, stay on previous day
+    if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(3, 0):
+        tui.selected_date -= timedelta(days=1)
+
+    curses.curs_set(0)  # hide cursor
+    stdscr.refresh()  # needed so everything displays at program start without a keypress
+
+    while tui.curses_loop:
+        header_pad = _Pad()
+        habits_pad = _Pad()
+        date_padding = options.get("date_padding")
+        name_cutoff = options.get("name_cutoff")
+
+        # The marker for the selected date
+        header_pad.add_str(
+            " " * (name_cutoff + date_padding * options.get("days_back"))
+            + "-" * date_padding,
+            attr=curses.A_BOLD,
         )
 
-    def run(self, stdscr) -> None:
-        """Start the main TUI event loop."""
-        self.stdscr = stdscr
+        on_screen_dates = [
+            tui.selected_date + timedelta(days=delta)
+            for delta in range(
+                -options.get("days_back"), options.get("days_forward") + 1
+            )
+        ]
 
-        def _format_name(habit: Habit) -> str:
-            name = (
-                habit.get_alias_or_name()
-                if self.options.get("show_alias")
-                else habit.get_name()
+        # Row of dates to be shown
+        header_pad.add_str(
+            _dates_row(
+                on_screen_dates,
+                name_cutoff,
+                options.get("pretty_date_format"),
+                date_padding,
+            )
+        )
+
+        # Add habits to pad
+        for habit in tui.tui_habits:
+            habit_row: str = _format_name(
+                habit,
+                options.get("show_alias"),
+                options.get("name_cutoff"),
+                options.get("name_cutoff_char"),
             )
 
-            # Add indicator if the habit has an associated file
-            if habit.get_file():
-                name = f"[f] {name}"
-
-            # Shorten long names
-            last_visible_character = name_cutoff - 2
-            if len(name) > last_visible_character:
-                name = name[:last_visible_character] + self.options.get(
-                    "name_cutoff_char"
-                )
-
-            return name.ljust(name_cutoff)
-
-        curses.curs_set(0)  # hide cursor
-        stdscr.refresh()  # needed so everything displays at program start without a keypress
-
-        while self.curses_loop:
-            header_pad = _Pad()
-            habits_pad = _Pad()
-            date_padding = self.options.get("date_padding")
-            name_cutoff = self.options.get("name_cutoff")
-
-            header_pad.add_str("MICROHABITS".rjust(name_cutoff), attr=curses.A_BOLD)
-
-            # The marker for the selected date
-            header_pad.add_str(
-                " " * (name_cutoff + date_padding * self.options.get("days_back"))
-                + "-" * date_padding,
-                attr=curses.A_BOLD,
-            )
-
-            # Choose dates to be shown
-            on_screen_dates = [
-                self.selected_date + timedelta(days=delta)
-                for delta in range(
-                    -self.options.get("days_back"), self.options.get("days_forward") + 1
-                )
-            ]
-
-            shown_dates = " " * name_cutoff
+            # Add toggle for each date shown
             for date in on_screen_dates:
-                shown_dates += date.strftime(
-                    self.options.get("pretty_date_format")
-                ).ljust(date_padding)
+                habit_row += _decide_toggle(habit, date).ljust(date_padding)
 
-            header_pad.add_str(shown_dates)
-
-            # Add habits to pad
-            for habit in self.tui_habits:
-                habit_row: str = _format_name(habit)
-
-                # Add toggle for each date shown
-                for date in on_screen_dates:
-                    if s := habit.log.get_status(date):
-                        toggle = f"[{STATUSES_DISPLAY[s]}]"
-                    elif habit.is_due(date):
-                        toggle = "[ ]"
-                    else:
-                        toggle = "[o]"
-                    habit_row += toggle.ljust(date_padding)
-
-                # Highlight rows depending on options and selected toggle
-                if self.options.get("hide_completed") and not habit.is_due(
-                    self.selected_date
-                ):
-                    attr = curses.A_DIM
-                else:
-                    attr = curses.A_BOLD
-
-                if habit == self.selected_habit:
-                    attr |= curses.A_STANDOUT
-
-                habits_pad.add_str(habit_row, attr=attr)
-
-            # Refresh all pads at once.
-            curses.update_lines_cols()  # detect screen resize
-            y_max, x_max = (p - 1 for p in stdscr.getmaxyx())
-
-            i = self.tui_habits.index(self.selected_habit)
-            header_bottom = header_pad.get_height() - 1
-            scroll = max(
-                0, i - y_max + header_bottom + self.options.get("scroll_margin")
+            habits_pad.add_str(
+                habit_row,
+                attr=_decide_attr(
+                    is_selected=habit == tui.selected_habit,
+                    hide_completed=options.get("hide_completed"),
+                    is_due=habit.is_due(tui.selected_date),
+                ),
             )
-            header_pad.refresh(0, 0, 0, 0, header_bottom, x_max)
-            habits_pad.refresh(scroll, 0, header_bottom + 1, 0, y_max, x_max)
 
-            key = stdscr.getkey()
-            if key in KEYBINDS:
-                KEYBINDS[key](self)
-            else:
-                print(key)
+        # Refresh all pads at once.
+        curses.update_lines_cols()  # detect screen resize
+
+        _refresh_pads(
+            stdscr,
+            header_pad,
+            habits_pad,
+            selected_habits_nr=_get_selected_index(tui.tui_habits, tui.selected_habit),
+            scroll_margin=options.get("scroll_margin"),
+        )
+
+        _handle_keypress(stdscr.getkey(), tui, options, stdscr)
