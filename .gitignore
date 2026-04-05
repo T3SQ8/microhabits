@@ -3,3 +3,4 @@ build
 microhabits.egg-info
 test.log
 .DS_Store
+todo.txt

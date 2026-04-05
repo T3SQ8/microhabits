@@ -1,12 +1,14 @@
+"""Provied curses TUI. Handles rendering a grid with dates and statuses, managing user input."""
+
 import curses
 import datetime
 from datetime import timedelta
-from pathlib import Path
+from typing import Callable
 
+from . import keybinds
 from .habit import Habit
 from .habits_collection import HabitsManager
 from .options import OptionsManager
-from .task_functions import open_in_editor
 
 STATUSES_DISPLAY = {
     None: " ",
@@ -15,127 +17,90 @@ STATUSES_DISPLAY = {
     "FAILED": "n",
 }
 
+KEYBINDS: dict[str, Callable] = {
+    "KEY_UP": keybinds.move_up,
+    "k": keybinds.move_up,
+    "KEY_DOWN": keybinds.move_down,
+    "j": keybinds.move_down,
+    "KEY_LEFT": keybinds.move_left,
+    "h": keybinds.move_left,
+    "KEY_RIGHT": keybinds.move_right,
+    "l": keybinds.move_right,
+    " ": keybinds.next_status,
+    "t": keybinds.move_today,
+    "q": keybinds.halt,
+    "H": keybinds.toggle_hide_completed,
+    "A": keybinds.toggle_show_aliases,
+    "g": keybinds.move_top,
+    "G": keybinds.move_bottom,
+    "E": keybinds.open_in_editor,
+    "S": keybinds.next_status_all,
+}
+
 
 class _Pad:
+    """Helper for managing text contents in curses pads."""
+
     def __init__(self) -> None:
+        """Initialize the Pad with an empty contents list."""
         self.pad: curses.window
         self.contents: list[tuple[str, int]] = []
 
     def add_str(
         self, content: str, attr: int = curses.A_NORMAL, padding: int = 0
     ) -> None:
+        """Adds row to list of contents"""
         self.contents.append((content.rjust(padding), attr))
 
     def get_height(self) -> int:
+        """Returns height of pad, i.e. number of rows."""
         return len(self.contents)
 
     def get_width(self) -> int:
+        """Returns widest row in pad."""
         return max(len(content) for content, _ in self.contents)
 
     def refresh(self, pminrow, pmincol, sminrow, smincol, smaxrow, smaxcol):
+        """Shows the pad at the specified position"""
         self.pad = curses.newpad(self.get_height() + 1, self.get_width() + 1)
         for row, content in enumerate(self.contents):
             self.pad.addstr(row, 0, content[0], content[1])
         self.pad.refresh(pminrow, pmincol, sminrow, smincol, smaxrow, smaxcol)
 
     def __repr__(self) -> str:
+        """Return the string representation of the pad contents."""
         return "\n".join(c[0] for c in self.contents)
 
 
 class CursesTui:
-    def __init__(self, habits: HabitsManager, options_file: Path | None) -> None:
-        self.habits_manager: HabitsManager = habits
-        self.options: OptionsManager = OptionsManager()
-        if options_file:
-            self.options.load_conf_file(options_file)
-        self.selected_habit_nr = 0
+    """TUI-interface for the program."""
+
+    def __init__(self, habits: HabitsManager, options: OptionsManager) -> None:
         self.curses_loop = True
+        self.habits_manager: HabitsManager = habits
+        self.options: OptionsManager = options
+        self.today: datetime.date = datetime.date.today()
+        self.stdscr: curses.window = curses.initscr()
 
         # ignore habits that only exist in log file, see load_log_from_file()
-        self.tui_habits: list[Habit] = []
-        for habit in self.habits_manager.habits.values():
-            if not habit.hide_from_tui:
-                self.tui_habits.append(habit)
-
-        self.today = datetime.date.today()
-        self.selected_habit_nr = 0
+        self.tui_habits = self.habits_manager.get_unhidden()
+        self.selected_habit = self.tui_habits[0]
 
         # if time is between 00:00 and 03:00, stay on previous day
-        if datetime.time(0, 0) <= datetime.datetime.now().time() < datetime.time(3, 0):
-            self.selected_date = self.today - timedelta(days=1)
-        else:
-            self.selected_date = self.today
-
-        self.keybinds = {
-            "KEY_UP": self.move_up,
-            "k": self.move_up,
-            "KEY_DOWN": self.move_down,
-            "j": self.move_down,
-            "KEY_LEFT": self.move_left,
-            "h": self.move_left,
-            "KEY_RIGHT": self.move_right,
-            "l": self.move_right,
-            " ": self.next_status,
-            "t": self.move_to_today,
-            "q": self.stop,
-            "H": self.toggle_hide_completed,
-            "A": self.toggle_show_aliases,
-            "g": self.move_top,
-            "G": self.move_bottom,
-            "E": self.open_in_editor,
-            "S": self.toggle_all,
-        }
-
-    def move_up(self, *_):
-        self.selected_habit_nr = max(0, self.selected_habit_nr - 1)
-
-    def move_down(self, *_):
-        self.selected_habit_nr = min(
-            self.selected_habit_nr + 1, len(self.tui_habits) - 1
+        self.selected_date = (
+            self.today - timedelta(days=1)
+            if (
+                datetime.time(0, 0)
+                <= datetime.datetime.now().time()
+                < datetime.time(3, 0)
+            )
+            else self.today
         )
 
-    def move_left(self, *_):
-        self.selected_date -= timedelta(days=1)
+    def run(self, stdscr) -> None:
+        """Start the main TUI event loop."""
+        self.stdscr = stdscr
 
-    def move_right(self, *_):
-        self.selected_date += timedelta(days=1)
-
-    def move_top(self, *_):
-        self.selected_habit_nr = 0
-
-    def move_bottom(self, *_):
-        self.selected_habit_nr = len(self.tui_habits) - 1
-
-    def next_status(self, *_):
-        self.tui_habits[self.selected_habit_nr].log.next_status(self.selected_date)
-
-    def move_to_today(self, *_):
-        self.selected_date = self.today
-
-    def stop(self, *_):
-        self.curses_loop = False
-
-    def toggle_hide_completed(self, *_):
-        self.options.toggle_option("hide_completed")
-
-    def toggle_show_aliases(self, *_):
-        self.options.toggle_option("show_alias")
-
-    def open_in_editor(self, stdscr):
-        if file := self.tui_habits[self.selected_habit_nr].get_file():
-            open_in_editor(file)
-        stdscr.clear()
-        stdscr.refresh()
-
-    def toggle_all(self, *_):
-        self.tui_habits[self.selected_habit_nr].log.next_status(self.selected_date)
-        wanted_status = self.tui_habits[self.selected_habit_nr].log.get_status(
-            self.selected_date
-        )
-        for habit in self.tui_habits:
-            habit.log.set_status(self.selected_date, wanted_status)
-
-    def run(self, stdscr):
         def _format_name(habit: Habit) -> str:
             name = (
                 habit.get_alias_or_name()
@@ -191,7 +156,7 @@ class CursesTui:
             header_pad.add_str(shown_dates)
 
             # Add habits to pad
-            for row, habit in enumerate(self.tui_habits):
+            for habit in self.tui_habits:
                 habit_row: str = _format_name(habit)
 
                 # Add toggle for each date shown
@@ -212,21 +177,25 @@ class CursesTui:
                 else:
                     attr = curses.A_BOLD
 
-                if row == self.selected_habit_nr:
+                if habit == self.selected_habit:
                     attr |= curses.A_STANDOUT
 
                 habits_pad.add_str(habit_row, attr=attr)
 
             # Refresh all pads at once.
             curses.update_lines_cols()  # detect screen resize
-            y_max, x_max = [p - 1 for p in stdscr.getmaxyx()]
+            y_max, x_max = (p - 1 for p in stdscr.getmaxyx())
 
+            i = self.tui_habits.index(self.selected_habit)
             header_bottom = header_pad.get_height() - 1
-            scroll = max(0, self.selected_habit_nr - y_max + header_bottom)
+            scroll = max(
+                0, i - y_max + header_bottom + self.options.get("scroll_margin")
+            )
             header_pad.refresh(0, 0, 0, 0, header_bottom, x_max)
             habits_pad.refresh(scroll, 0, header_bottom + 1, 0, y_max, x_max)
 
-            if (key := stdscr.getkey()) in self.keybinds:
-                self.keybinds[key](stdscr)
+            key = stdscr.getkey()
+            if key in KEYBINDS:
+                KEYBINDS[key](self)
             else:
                 print(key)

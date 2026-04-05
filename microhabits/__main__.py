@@ -12,6 +12,7 @@ from pathlib import Path
 from filelock import FileLock, Timeout
 
 from .habits_collection import HabitsManager
+from .options import OptionsManager
 from .tui import CursesTui
 
 LOCK_FILE = "/tmp/microhabits.lock"
@@ -68,19 +69,13 @@ def main():
 
     try:
         with FileLock(LOCK_FILE, timeout=0):
-            start_tui(args.habits_file, args.log_file, args.conf_file)
+            habits = HabitsManager(args.habits_file, args.log_file).load_files()
+            options: OptionsManager = OptionsManager().load_conf_file(args.conf_file)
+            wrapper(CursesTui(habits, options).run)
+            habits.save_log_to_file()
     except Timeout:
         print("Another instance is already running. Exiting.")
         sys.exit(1)
-
-
-def start_tui(habits_file, log_file, conf_file):
-    """Initialize and run the terminal user interface."""
-    habits = HabitsManager(habits_file, log_file)
-
-    tui = CursesTui(habits, conf_file if conf_file.is_file() else None)
-    wrapper(tui.run)
-    habits.save_log_to_file()
 
 
 if __name__ == "__main__":

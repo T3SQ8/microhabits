@@ -15,6 +15,7 @@ DEFAULT_OPTIONS = {
     "header_height": 2,
     "pretty_date_format": "%d/%m (%a)",
     "show_alias": False,
+    "scroll_margin": 3,
 }
 
 

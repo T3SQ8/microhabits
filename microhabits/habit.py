@@ -38,3 +38,11 @@ class Habit:
     def set_status(self, date: datetime.date, status: Status) -> None:
         """Set the completion status for a given date."""
         self.log.set_status(date, status)
+
+    def get_status(self, date: datetime.date) -> Optional[str]:
+        """Get the completion status for a given date."""
+        return self.log.get_status(date)
+
+    def next_status(self, date: datetime.date):
+        """Set the completion status for a given date to the next defines status."""
+        self.log.next_status(date)
