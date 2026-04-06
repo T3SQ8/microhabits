@@ -39,6 +39,8 @@ KEYBINDS: dict[str, Callable] = {
 }
 
 type Position = tuple[int, int]
+type RowSegment = tuple[str, int]
+type Row = list[RowSegment]
 
 
 class _Pad:
@@ -47,11 +49,15 @@ class _Pad:
     def __init__(self) -> None:
         """Initialize the Pad with an empty contents list."""
         self.pad: curses.window
-        self.contents: list[tuple[str, int]] = []
+        self.contents: list[Row] = []
 
     def add_str(self, content: str, attr: int = curses.A_NORMAL) -> None:
         """Adds row to list of contents"""
-        self.contents.append((content, attr))
+        self.contents.append([(content, attr)])
+
+    def add_segments(self, segments: Row) -> None:
+        """Adds a row composed of multiple styled text segments."""
+        self.contents.append(segments)
 
     def get_height(self) -> int:
         """Returns height of pad, i.e. number of rows."""
@@ -59,13 +65,16 @@ class _Pad:
 
     def get_width(self) -> int:
         """Returns widest row in pad."""
-        return max(len(content) for content, _ in self.contents)
+        return max(sum(len(content) for content, _ in row) for row in self.contents)
 
     def refresh(self, pad_min: Position, screen_min: Position, screen_max: Position):
         """Shows the pad at the specified position"""
         self.pad = curses.newpad(self.get_height() + 1, self.get_width() + 1)
-        for row, content in enumerate(self.contents):
-            self.pad.addstr(row, 0, content[0], content[1])
+        for row, segments in enumerate(self.contents):
+            col = 0
+            for content, attr in segments:
+                self.pad.addstr(row, col, content, attr)
+                col += len(content)
         pminrow, pmincol = pad_min
         sminrow, smincol = screen_min
         smaxrow, smaxcol = screen_max
@@ -73,7 +82,9 @@ class _Pad:
 
     def __repr__(self) -> str:
         """Return the string representation of the pad contents."""
-        return "\n".join(c[0] for c in self.contents)
+        return "\n".join(
+            "".join(content for content, _ in row) for row in self.contents
+        )
 
 
 @dataclass
@@ -107,12 +118,17 @@ def _format_name(
 
 
 def _dates_row(
-    dates: list[datetime.date], name_cutoff: int, pretty_format: str, padding: int
-) -> str:
-    shown_dates = " " * name_cutoff
+    dates: list[datetime.date],
+    today: datetime.date,
+    name_cutoff: int,
+    pretty_format: str,
+    padding: int,
+) -> Row:
+    segments: Row = [(" " * name_cutoff, curses.A_NORMAL)]
     for date in dates:
-        shown_dates += date.strftime(pretty_format).ljust(padding)
-    return shown_dates
+        attr = curses.A_BOLD if date == today else curses.A_NORMAL
+        segments.append((date.strftime(pretty_format).ljust(padding), attr))
+    return segments
 
 
 def _decide_toggle(habit: Habit, date: datetime.date, padding: int) -> str:
@@ -190,9 +206,10 @@ def run(stdscr, habits_manager: HabitsManager, options: OptionsManager):
         ]
 
         # Row of dates to be shown
-        header_pad.add_str(
+        header_pad.add_segments(
             _dates_row(
                 on_screen_dates,
+                tui.today,
                 name_cutoff,
                 options.get("pretty_date_format"),
                 date_padding,
