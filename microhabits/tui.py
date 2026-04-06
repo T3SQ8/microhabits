@@ -49,11 +49,9 @@ class _Pad:
         self.pad: curses.window
         self.contents: list[tuple[str, int]] = []
 
-    def add_str(
-        self, content: str, attr: int = curses.A_NORMAL, padding: int = 0
-    ) -> None:
+    def add_str(self, content: str, attr: int = curses.A_NORMAL) -> None:
         """Adds row to list of contents"""
-        self.contents.append((content.rjust(padding), attr))
+        self.contents.append((content, attr))
 
     def get_height(self) -> int:
         """Returns height of pad, i.e. number of rows."""
@@ -117,14 +115,14 @@ def _dates_row(
     return shown_dates
 
 
-def _decide_toggle(habit: Habit, date: datetime.date) -> str:
+def _decide_toggle(habit: Habit, date: datetime.date, padding: int) -> str:
     if s := habit.get_status(date):
         toggle_char = STATUSES_DISPLAY[s]
     elif habit.is_due(date):
         toggle_char = " "
     else:
         toggle_char = "o"
-    return f"[{toggle_char}]"
+    return f"[{toggle_char}]".ljust(padding)
 
 
 def _decide_attr(is_selected: bool, hide_completed: bool, is_due: bool) -> int:
@@ -212,7 +210,7 @@ def run(stdscr, habits_manager: HabitsManager, options: OptionsManager):
 
             # Add toggle for each date shown
             for date in on_screen_dates:
-                habit_row += _decide_toggle(habit, date).ljust(date_padding)
+                habit_row += _decide_toggle(habit, date, date_padding)
 
             habits_pad.add_str(
                 habit_row,
