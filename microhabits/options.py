@@ -1,11 +1,27 @@
 """Helpers for managing and loading options"""
 
-from pathlib import Path
-from typing import Any, Self
+from os import PathLike
+from typing import Any, Self, TypedDict
 
 import yaml
 
-DEFAULT_OPTIONS = {
+
+class Options(TypedDict):
+    """Typed mapping of supported configuration options."""
+
+    hide_completed: bool
+    name_cutoff: int
+    name_cutoff_char: str
+    date_padding: int
+    days_back: int
+    days_forward: int
+    header_height: int
+    pretty_date_format: str
+    show_alias: bool
+    scroll_margin: int
+
+
+DEFAULT_OPTIONS: Options = {
     "hide_completed": False,
     "name_cutoff": 25,
     "name_cutoff_char": "…",
@@ -24,9 +40,9 @@ class OptionsManager:
 
     def __init__(self) -> None:
         """Initialize the default values."""
-        self.options: dict[str, Any] = DEFAULT_OPTIONS
+        self.options: Options = DEFAULT_OPTIONS
 
-    def load_conf_file(self, opt_file: Path) -> Self:
+    def load_conf_file(self, opt_file: str | PathLike) -> Self:
         """Load options from a YAML file."""
         with open(opt_file, "r", encoding="utf-8") as f:
             for k, v in yaml.safe_load(f).items():
@@ -45,6 +61,6 @@ class OptionsManager:
         else:
             raise ValueError(f'trying to toggle non-boolean option "{k}"')
 
-    def get(self, k: str):
+    def get(self, k: str) -> Any:
         """Return the value for a single option key."""
         return self.options[k]
